@@ -46,7 +46,9 @@ async function julesFetch(path, options = {}) {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Jules API ${path} failed: ${res.status} ${body}`);
+    const error = new Error(`Jules API ${path} failed: ${res.status} ${body}`);
+    error.status = res.status;
+    throw error;
   }
   return res.json();
 }
@@ -149,9 +151,27 @@ async function waitForCompletion(sessionName) {
   let messages = [];
   let seenIds = new Set();
   let status = 'RUNNING';
+  let notFoundRetries = 0;
+  const MAX_NOT_FOUND_RETRIES = 5;
 
   while (Date.now() < deadline) {
-    const data = await julesFetch(`/${sessionName}/activities?pageSize=50`);
+    let data;
+    try {
+      data = await julesFetch(`/${sessionName}/activities?pageSize=50`);
+    } catch (err) {
+      if (err.status === 404 && notFoundRetries < MAX_NOT_FOUND_RETRIES) {
+        // The session may not be queryable yet right after creation
+        // (eventual consistency on the alpha API). Retry a few times.
+        notFoundRetries += 1;
+        console.log(
+          `Session not queryable yet (404), retry ${notFoundRetries}/${MAX_NOT_FOUND_RETRIES}...`
+        );
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        continue;
+      }
+      throw err;
+    }
+    notFoundRetries = 0;
     for (const activity of data.activities || []) {
       if (seenIds.has(activity.id)) continue;
       seenIds.add(activity.id);
