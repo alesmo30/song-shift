@@ -1,4 +1,4 @@
-name: Jules AI Code Review
+name: Gemini AI Code Review
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: jules-review-${{ github.event.pull_request.number }}
+  group: gemini-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -33,13 +33,12 @@ jobs:
           git diff "origin/${{ github.event.pull_request.base.ref }}...${{ github.event.pull_request.head.sha }}" > "${RUNNER_TEMP}/pr.diff"
           echo "Diff size: $(wc -l < "${RUNNER_TEMP}/pr.diff") lines"
 
-      - name: Run Jules review
+      - name: Run Gemini review
         env:
-          JULES_API_KEY: ${{ secrets.JULES_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
           DIFF_FILE: ${{ runner.temp }}/pr.diff
-        run: node .github/scripts/jules-review.js
+        run: node .github/scripts/gemini-review.js
