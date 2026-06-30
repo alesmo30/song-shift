@@ -1,13 +1,18 @@
 
 
 const express = require('express');
+const passport = require('passport');
 const { authRouter } = require('./router/auth.router');
 const { userRouter } = require('./router/user.router');
 const { errorHandler } = require('./middlewares/error.handler')
+const { jwtStrategy } = require('./utils/passport/passport');
 
 const server = express();
 
 server.use(express.json())
+
+server.use(passport.initialize());
+passport.use('jwt', jwtStrategy);
 
 server.use(authRouter);
 server.use(userRouter);
