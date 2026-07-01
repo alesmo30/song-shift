@@ -1,17 +1,14 @@
 
 
 
-require('dotenv/config');
-
 const jwt = require('jsonwebtoken');
-const dayjs = require('dayjs');
 const { AuthenticationError } = require('../../utils/errors');
 const { TOKEN_TYPE } = require('./const/token.constants');
 
 class TokenService {
 
-    refreshExpiresTime = dayjs().add(7, 'day').format();
-    accessExpiresTime = dayjs().add(1, 'day').format();
+    refreshExpiresTime = '7d';
+    accessExpiresTime = '1d';
 
     constructor(
         tokenType = TOKEN_TYPE.ACCESS_TOKEN,
@@ -20,8 +17,8 @@ class TokenService {
         this.tokenType = tokenType;
         this.payload = payload;
 
-        this.accessTokenSecret = config.JWT_ACCESS_TOKEN_SECRET;
-        this.refreshTokenSecret = config.JWT_REFRESH_TOKEN_SECRET;
+        this.accessTokenSecret = process.env.JWT_ACCESS_TOKEN_SECRET;
+        this.refreshTokenSecret = process.env.JWT_REFRESH_TOKEN_SECRET;
     }
 
     generateToken() {
@@ -30,6 +27,14 @@ class TokenService {
                 return this.generateAccessToken();
             case TOKEN_TYPE.REFRESH_TOKEN:
                 return this.generateRefreshToken();
+            case TOKEN_TYPE.BOTH_TOKENS: {
+                const accessToken = this.generateAccessToken();
+                const refreshToken = this.generateRefreshToken();
+                return {
+                    accessToken,
+                    refreshToken
+                }
+            }
             default:
                 throw new AuthenticationError("Invalid token type")
         }
