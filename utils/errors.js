@@ -32,5 +32,6 @@ class AuthorizationError extends AppError {
 module.exports = {
     AppError,
     ValidationError,
-    AuthenticationError
+    AuthenticationError,
+    AuthorizationError
 };

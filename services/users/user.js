@@ -3,10 +3,9 @@ const { isNil } = require('lodash');
 
 const prisma = require('../../lib/prisma');
 const { AppError } = require('../../utils/errors');
-const { handleServiceError } = require('../../helpers/user.service.helper');
 const logger = require('../../utils/logger');
 
-const saveUser = async (req, res) => {
+const saveUser = async (req, res, next) => {
     const { name, lastName, email, password: temporalPassword, role } = req.body;
 
     try {
@@ -23,7 +22,16 @@ const saveUser = async (req, res) => {
         const hashedPassword = await bcrypt.hash(temporalPassword, 10);
 
         const user = await prisma.user.create({
-            data: { name, lastName, email, password: hashedPassword, role }
+            data: { name, lastName, email, password: hashedPassword, role },
+            select: {
+                id: true,
+                name: true,
+                lastName: true,
+                email: true,
+                role: true,
+                createdAt: true,
+                updatedAt: true
+            }
         });
 
         logger.info(`[saveUser] User created: ${user.id}`);
@@ -31,17 +39,16 @@ const saveUser = async (req, res) => {
         return res.status(201).send(user);
     } catch (error) {
         logger.error(`[saveUser] Error: ${error.message}`);
-
-        return handleServiceError(res, error, 'Error saving user');
+        next(error);
     }
 }
 
-const getUser = async (req, res) => {
+const getUser = async (req, res, next) => {
     const id = req.params.id;
 
     if (isNil(id)) {
         logger.error(`[getUser] Error: User id is required: ${id}`);
-        throw new AppError('User id is required', 400);
+        return next(new AppError('User id is required', 400));
     }
 
     try {
@@ -68,9 +75,8 @@ const getUser = async (req, res) => {
         return res.status(200).send(user);
 
     } catch (error) {
-        console.error(`[getUser] Error: ${error.message}`);
-
-        return handleServiceError(res, error, 'Error getting user');
+        logger.error(`[getUser] Error: ${error.message}`);
+        next(error);
     }
 
 }
