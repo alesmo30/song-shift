@@ -4,8 +4,9 @@ const TokenService = require('../token/token.service');
 const prismaClient = require('../../lib/prisma');
 const logger = require('../../utils/logger');
 const bcrypt = require('bcryptjs');
+const { AuthenticationError } = require('../../utils/errors');
 
-const login = async (req, res) => {
+const login = async (req, res, next) => {
 
     // Validate user exists 
 
@@ -18,9 +19,7 @@ const login = async (req, res) => {
 
         if (!user) {
             logger.error(`[Login] Error: User not found`);
-            return res.status(404).send({
-                error: 'User not found'
-            })
+            throw new AuthenticationError('Invalid email or password');
         }
 
         logger.info(`[Login] User found: ${user.id}`);
@@ -30,9 +29,7 @@ const login = async (req, res) => {
 
         if (!isPasswordValid) {
             logger.error(`[Login] Error: Invalid password`);
-            return res.status(401).send({
-                error: 'Invalid password'
-            })
+            throw new AuthenticationError('Invalid email or password');
         }
 
         logger.info(`[Login] Password valid: ${user.id}`);
@@ -49,9 +46,7 @@ const login = async (req, res) => {
         return res.status(200).send(tokens);
     } catch (error) {
         logger.error(`[Login] Error: ${error.message}`);
-        return res.status(500).send({
-            error: error.message
-        })
+        next(error);
     }
 }
 

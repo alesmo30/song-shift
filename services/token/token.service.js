@@ -1,8 +1,6 @@
 
 
 
-require('dotenv/config');
-
 const jwt = require('jsonwebtoken');
 const { AuthenticationError } = require('../../utils/errors');
 const { TOKEN_TYPE } = require('./const/token.constants');

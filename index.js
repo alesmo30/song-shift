@@ -8,9 +8,11 @@ const server = require('./server');
 const app = http.createServer(server)
 
 
+const logger = require('./utils/logger');
+
 const exitHandler = () => {
-    if (server) {
-        server.close(() => {
+    if (app) {
+        app.close(() => {
             logger.info('Server closed');
             process.exit(1);
         });
