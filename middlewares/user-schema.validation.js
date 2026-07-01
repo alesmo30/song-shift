@@ -1,16 +1,6 @@
 const Joi = require('joi');
 const { ValidationError } = require('../utils/errors');
-
-const formatJoiErrors = (error) => {
-    if (!error || !error.details) return {};
-
-    return error.details.reduce((acc, detail) => {
-        const key = detail.path.join('.');
-        const cleanMessage = detail.message.replace(/['"]/g, '');
-        acc[key] = cleanMessage;
-        return acc;
-    }, {});
-};
+const { formatJoiErrors } = require('../utils/validation');
 
 const schema = Joi.object({
     name:     Joi.string().min(2).max(50).required(),
