@@ -4,7 +4,7 @@ const { formatJoiErrors } = require('../utils/validation');
 
 const loginSchema = Joi.object({
     email: Joi.string().email().required(),
-    password: Joi.string().required()
+    password: Joi.string().max(128).required()
 });
 
 const loginSchemaValidation = (req, res, next) => {
