@@ -22,12 +22,21 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
-      # Pinned: newer npm releases have shown lockfile-validation regressions around
-      # optional platform binaries (e.g. unrs-resolver's wasm32-wasi variant), which can
-      # make `npm ci` reject an otherwise-valid lockfile. Keep this in sync with the
-      # version package-lock.json was generated with if bumping.
+      # Pin npm to the exact version declared in package.json "packageManager".
+      # Newer npm releases have shown lockfile-validation regressions around optional
+      # platform binaries (e.g. unrs-resolver's wasm32-wasi / @emnapi variants), which
+      # make `npm ci` reject an otherwise-valid lockfile. Deriving the version from the
+      # single "packageManager" source of truth keeps CI and local installs in lockstep,
+      # so the lockfile is always generated and validated with the same npm.
       - name: Pin npm version
-        run: npm install -g npm@11.16.0
+        run: npm install -g "npm@$(node -p "require('./package.json').packageManager.split('@')[1]")"
+
+      - name: Verify npm version matches package.json
+        run: |
+          EXPECTED="$(node -p "require('./package.json').packageManager.split('@')[1]")"
+          ACTUAL="$(npm --version)"
+          echo "expected npm=$EXPECTED actual npm=$ACTUAL"
+          test "$EXPECTED" = "$ACTUAL"
 
       - name: Install dependencies
         run: npm ci
