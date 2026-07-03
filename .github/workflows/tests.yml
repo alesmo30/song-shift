@@ -22,6 +22,13 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
+      # Pinned: newer npm releases have shown lockfile-validation regressions around
+      # optional platform binaries (e.g. unrs-resolver's wasm32-wasi variant), which can
+      # make `npm ci` reject an otherwise-valid lockfile. Keep this in sync with the
+      # version package-lock.json was generated with if bumping.
+      - name: Pin npm version
+        run: npm install -g npm@11.16.0
+
       - name: Install dependencies
         run: npm ci
 
