@@ -8,8 +8,6 @@ const { AuthenticationError } = require('../../utils/errors');
 
 const login = async (req, res, next) => {
 
-    // Validate user exists 
-
     try {
         const user = await prismaClient.user.findFirst({
             where: {
