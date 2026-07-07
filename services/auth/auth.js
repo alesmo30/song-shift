@@ -5,6 +5,7 @@ const prismaClient = require('../../lib/prisma');
 const logger = require('../../utils/logger');
 const bcrypt = require('bcryptjs');
 const { AuthenticationError } = require('../../utils/errors');
+const tokenSchema = require('../../mongo/token-schema');
 
 const login = async (req, res, next) => {
 
@@ -41,7 +42,26 @@ const login = async (req, res, next) => {
         const tokenService = new TokenService(TOKEN_TYPE.BOTH_TOKENS, payload);
         const tokens = tokenService.generateToken();
 
-        return res.status(200).send(tokens);
+        // Calculate token expiration dates
+        const now = new Date();
+        const accessTokenExpiresAt = new Date(now);
+        accessTokenExpiresAt.setDate(now.getDate() + 1); // 1 day from now
+
+        const refreshTokenExpiresAt = new Date(now);
+        refreshTokenExpiresAt.setDate(now.getDate() + 7); // 7 days from now
+
+        // Save to mongo
+        const tokenModel = new tokenSchema({
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+            user: user.id,
+            accessTokenExpiresAt,
+            refreshTokenExpiresAt,
+        });
+
+        const tokenSaved = await tokenModel.save();
+
+        return res.status(200).send(tokenSaved);
     } catch (error) {
         logger.error(`[Login] Error: ${error.message}`);
         next(error);
