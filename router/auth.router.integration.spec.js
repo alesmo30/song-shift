@@ -30,6 +30,15 @@ jest.mock('jsonwebtoken', () => ({
     })
 }));
 
+jest.mock('../mongo/token-schema', () => {
+    return jest.fn().mockImplementation((data) => {
+        return {
+            ...data,
+            save: jest.fn().mockResolvedValue(data)
+        };
+    });
+});
+
 describe('POST /login (integration)', () => {
     it('returns 400 when the request body fails validation', async () => {
         const response = await request(server)
