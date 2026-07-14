@@ -18,6 +18,15 @@ jest.mock('jsonwebtoken', () => ({
     sign: jest.fn()
 }));
 
+jest.mock('../../mongo/token-schema', () => {
+    return jest.fn().mockImplementation((data) => {
+        return {
+            ...data,
+            save: jest.fn().mockResolvedValue(data)
+        };
+    });
+});
+
 describe('services/auth/auth', () => {
     const buildReq = (body) => ({ body });
     const buildRes = () => {
@@ -74,10 +83,11 @@ describe('services/auth/auth', () => {
         await login(req, res, next);
 
         expect(res.status).toHaveBeenCalledWith(200);
-        expect(res.send).toHaveBeenCalledWith({
+        expect(res.send).toHaveBeenCalledWith(expect.objectContaining({
             accessToken: 'stub-token-for-test-access-secret',
-            refreshToken: 'stub-token-for-test-refresh-secret'
-        });
+            refreshToken: 'stub-token-for-test-refresh-secret',
+            user: user.id
+        }));
         expect(jwt.sign).toHaveBeenCalledWith(
             { id: user.id, email: user.email, role: user.role },
             'test-access-secret',
