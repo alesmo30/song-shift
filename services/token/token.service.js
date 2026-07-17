@@ -4,6 +4,7 @@
 const jwt = require('jsonwebtoken');
 const { AuthenticationError } = require('../../utils/errors');
 const { TOKEN_TYPE } = require('./const/token.constants');
+const { isNil } = require('lodash');
 
 class TokenService {
 
@@ -50,6 +51,20 @@ class TokenService {
         return jwt.sign(this.payload, this.refreshTokenSecret, {
             expiresIn: this.refreshExpiresTime
         });
+    }
+
+    static isRefreshTokenStillActive(token) {
+        try {
+            const tokenVerified = jwt.verify(token, process.env.JWT_REFRESH_TOKEN_SECRET);
+
+            return !isNil(tokenVerified);
+        } catch (error) {
+            if (error.name === 'TokenExpiredError') {
+                return false;
+            } else {
+                throw new AuthenticationError('Invalid refresh token');
+            }
+        }
     }
 
 }
