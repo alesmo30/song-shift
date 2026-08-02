@@ -76,9 +76,11 @@ describe('POST /login (integration)', () => {
         expect(response.status).toBe(401);
     });
 
-    it('returns 200 with an access and refresh token on valid credentials', async () => {
+    it('returns 200 with an access token and user info, and sets the refresh token as an httpOnly cookie', async () => {
         prisma.user.findFirst.mockResolvedValue({
             id: '1',
+            name: 'Jane',
+            lastName: 'Doe',
             email: 'user@example.com',
             role: 'USER',
             password: 'hashed-password'
@@ -91,6 +93,20 @@ describe('POST /login (integration)', () => {
 
         expect(response.status).toBe(200);
         expect(response.body).toHaveProperty('accessToken');
-        expect(response.body).toHaveProperty('refreshToken');
+        expect(response.body).not.toHaveProperty('refreshToken');
+        expect(response.body.user).toEqual({
+            id: '1',
+            name: 'Jane',
+            lastName: 'Doe',
+            email: 'user@example.com',
+            role: 'USER'
+        });
+
+        const setCookieHeader = response.headers['set-cookie'];
+        expect(setCookieHeader).toBeDefined();
+        const refreshTokenCookie = setCookieHeader.find((cookie) => cookie.startsWith('refreshToken='));
+        expect(refreshTokenCookie).toBeDefined();
+        expect(refreshTokenCookie).toMatch(/HttpOnly/i);
+        expect(refreshTokenCookie).toMatch(/SameSite=Lax/i);
     });
 });

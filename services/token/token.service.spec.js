@@ -4,7 +4,8 @@ const { TOKEN_TYPE } = require('./const/token.constants');
 const { AuthenticationError } = require('../../utils/errors');
 
 jest.mock('jsonwebtoken', () => ({
-    sign: jest.fn()
+    sign: jest.fn(),
+    verify: jest.fn()
 }));
 
 describe('services/token/token.service', () => {
@@ -60,5 +61,39 @@ describe('services/token/token.service', () => {
         tokenService.generateToken();
 
         expect(jwt.sign).toHaveBeenCalledWith({}, 'test-access-secret', { expiresIn: '1d' });
+    });
+
+    describe('isRefreshTokenStillActive', () => {
+        it('returns true when the token verifies to a non-nil payload', () => {
+            jwt.verify.mockReturnValue({ id: '1' });
+
+            const result = TokenService.isRefreshTokenStillActive('valid-token');
+
+            expect(result).toBe(true);
+            expect(jwt.verify).toHaveBeenCalledWith('valid-token', 'test-refresh-secret');
+        });
+
+        it('returns false when the token has expired', () => {
+            const expiredError = new Error('jwt expired');
+            expiredError.name = 'TokenExpiredError';
+            jwt.verify.mockImplementation(() => {
+                throw expiredError;
+            });
+
+            const result = TokenService.isRefreshTokenStillActive('expired-token');
+
+            expect(result).toBe(false);
+        });
+
+        it('throws AuthenticationError when the token is otherwise invalid', () => {
+            const malformedError = new Error('jwt malformed');
+            malformedError.name = 'JsonWebTokenError';
+            jwt.verify.mockImplementation(() => {
+                throw malformedError;
+            });
+
+            expect(() => TokenService.isRefreshTokenStillActive('bad-token')).toThrow(AuthenticationError);
+            expect(() => TokenService.isRefreshTokenStillActive('bad-token')).toThrow('Invalid refresh token');
+        });
     });
 });

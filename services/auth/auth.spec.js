@@ -38,11 +38,12 @@ jest.mock('../../mongo/token-schema', () => {
 });
 
 describe('services/auth/auth', () => {
-    const buildReq = (body) => ({ body });
+    const buildReq = (body, cookies = {}) => ({ body, cookies });
     const buildRes = () => {
         const res = {};
         res.status = jest.fn().mockReturnValue(res);
         res.send = jest.fn().mockReturnValue(res);
+        res.cookie = jest.fn().mockReturnValue(res);
         return res;
     };
 
@@ -82,8 +83,8 @@ describe('services/auth/auth', () => {
         expect(res.status).not.toHaveBeenCalled();
     });
 
-    it('responds with both tokens when credentials are valid', async () => {
-        const user = { id: '1', email: 'user@example.com', role: 'USER', password: 'hashed-password' };
+    it('responds with the access token and user info in the body, and sets the refresh token as an httpOnly cookie', async () => {
+        const user = { id: '1', name: 'Jane', lastName: 'Doe', email: 'user@example.com', role: 'USER', password: 'hashed-password' };
         prismaClient.user.findFirst.mockResolvedValue(user);
         bcrypt.compare.mockResolvedValue(true);
         const req = buildReq({ email: 'user@example.com', password: 'secret123' });
@@ -92,12 +93,23 @@ describe('services/auth/auth', () => {
 
         await login(req, res, next);
 
-        expect(res.status).toHaveBeenCalledWith(200);
-        expect(res.send).toHaveBeenCalledWith(expect.objectContaining({
-            accessToken: 'stub-token-for-test-access-secret',
-            refreshToken: 'stub-token-for-test-refresh-secret',
-            user: user.id
+        expect(res.cookie).toHaveBeenCalledWith('refreshToken', 'stub-token-for-test-refresh-secret', expect.objectContaining({
+            httpOnly: true,
+            sameSite: 'lax',
+            maxAge: 7 * 24 * 60 * 60 * 1000
         }));
+        expect(res.status).toHaveBeenCalledWith(200);
+        expect(res.send).toHaveBeenCalledWith({
+            accessToken: 'stub-token-for-test-access-secret',
+            user: {
+                id: user.id,
+                name: user.name,
+                lastName: user.lastName,
+                email: user.email,
+                role: user.role
+            }
+        });
+        expect(res.send).not.toHaveBeenCalledWith(expect.objectContaining({ refreshToken: expect.anything() }));
         expect(jwt.sign).toHaveBeenCalledWith(
             { id: user.id, email: user.email, role: user.role },
             'test-access-secret',
@@ -135,7 +147,10 @@ describe('services/auth/auth', () => {
     });
 
     describe('renewTokens', () => {
-        const buildRenewReq = (body) => ({ body });
+        const buildRenewReq = ({ refreshToken, userId } = {}) => ({
+            body: { userId },
+            cookies: refreshToken === undefined ? {} : { refreshToken }
+        });
         let isRefreshTokenStillActiveSpy;
 
         beforeEach(() => {
@@ -178,12 +193,27 @@ describe('services/auth/auth', () => {
             const lastInstance = tokenSchemaModel.mock.results[tokenSchemaModel.mock.results.length - 1].value;
             expect(lastInstance.save).toHaveBeenCalledWith({ session });
 
+            expect(res.cookie).toHaveBeenCalledWith('refreshToken', 'stub-token-for-test-refresh-secret', expect.objectContaining({
+                httpOnly: true,
+                sameSite: 'lax',
+                maxAge: 7 * 24 * 60 * 60 * 1000
+            }));
             expect(res.status).toHaveBeenCalledWith(200);
             expect(res.send).toHaveBeenCalledWith({
-                accessToken: 'stub-token-for-test-access-secret',
-                refreshToken: 'stub-token-for-test-refresh-secret'
+                accessToken: 'stub-token-for-test-access-secret'
             });
             expect(session.endSession).toHaveBeenCalledTimes(1);
+        });
+
+        it('throws AuthenticationError when no refresh token cookie is provided', async () => {
+            const req = buildRenewReq({ userId: 'user-1' });
+            const res = buildRes();
+
+            await expect(renewTokens(req, res)).rejects.toMatchObject({
+                name: 'AuthenticationError',
+                message: 'No refresh token provided'
+            });
+            expect(tokenSchemaModel.findOne).not.toHaveBeenCalled();
         });
 
         it('returns "Token is still valid" without touching mongo when the refresh token is still active', async () => {
