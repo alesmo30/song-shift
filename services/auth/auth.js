@@ -39,7 +39,22 @@ const login = async (req, res, next) => {
         // Create access token
         const tokenSaved = await createTokens(user.id, user.email, user.role);
 
-        return res.status(200).send(tokenSaved);
+        // Set refresh token in HttpOnly cookie
+        res.cookie('refreshToken', tokenSaved.refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days in milliseconds
+        });
+
+        return res.status(200).send({
+            accessToken: tokenSaved.accessToken,
+            user: {
+                id: user.id,
+                email: user.email,
+                role: user.role
+            }
+        });
     } catch (error) {
         logger.error(`[Login] Error: ${error.message}`);
         next(error);
@@ -48,7 +63,12 @@ const login = async (req, res, next) => {
 
 const renewTokens = async (req, res) => {
     // Validate refresh token is still valid in DB 
-    const { refreshToken, userId } = req.body;
+    const { userId } = req.body;
+    const refreshToken = req.cookies?.refreshToken;
+
+    if (!refreshToken) {
+        throw new AuthenticationError('No refresh token provided');
+    }
 
     try {
         // Should be only one active always +1 (not good)
@@ -108,10 +128,17 @@ const renewTokens = async (req, res) => {
 
         logger.info(`[RenewTokens] Tokens renewed for user: ${userId}`);
 
-        // Return new token pair
+        // Set new refresh token in HttpOnly cookie
+        res.cookie('refreshToken', tokenSaved.refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+        });
+
+        // Return new access token
         return res.status(200).send({
             accessToken: tokenSaved.accessToken,
-            refreshToken: tokenSaved.refreshToken,
         });
 
 
