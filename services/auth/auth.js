@@ -51,6 +51,8 @@ const login = async (req, res, next) => {
             accessToken: tokenSaved.accessToken,
             user: {
                 id: user.id,
+                name: user.name,
+                lastName: user.lastName,
                 email: user.email,
                 role: user.role
             }

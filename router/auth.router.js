@@ -4,6 +4,6 @@ const { loginSchemaValidation } = require('../middlewares/login-schema.validatio
 const router = express.Router();
 
 router.post('/login', loginSchemaValidation, login);
-router.post('/renew-token', renewTokens)
+router.post('/renew-tokens', renewTokens)
 
 module.exports = { authRouter: router };
