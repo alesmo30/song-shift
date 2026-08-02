@@ -5,7 +5,7 @@ const express = require('express');
 const { userSchemaValidation } = require('../middlewares/user-schema.validation');
 const router = express.Router();
 
-router.post('/users', userSchemaValidation, saveUser);
+router.post('/users', auth, checkRole(['ADMIN']), userSchemaValidation, saveUser);
 router.get('/users/:id', auth, getUser);
 
 module.exports = { userRouter: router };
