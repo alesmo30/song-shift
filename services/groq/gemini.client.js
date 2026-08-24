@@ -3,10 +3,10 @@ const { get } = require('lodash');
 const { AppError } = require('../../utils/errors');
 const logger = require('../../utils/logger');
 
-const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 const MAX_RETRIES = 2;
 const BASE_BACKOFF_MS = 500;
-const EXTRACTION_FAILED_MESSAGE = 'Groq extraction failed';
+const EXTRACTION_FAILED_MESSAGE = 'Gemini extraction failed';
 
 const EXTRACTION_PROMPT = 'You are reading a screenshot of the Apple Music app on a phone. '
     + 'Each song is shown as a row with the track title on top, the artist name below it '
@@ -16,26 +16,24 @@ const EXTRACTION_PROMPT = 'You are reading a screenshot of the Apple Music app o
     + '(never the album), its duration exactly as shown (or null if it is not visible), and a '
     + 'confidence score from 0 to 100 for how legible that row was.';
 
-const SONGS_JSON_SCHEMA = {
-    type: 'object',
-    additionalProperties: false,
-    required: ['songs'],
+const SONGS_RESPONSE_SCHEMA = {
+    type: 'OBJECT',
     properties: {
         songs: {
-            type: 'array',
+            type: 'ARRAY',
             items: {
-                type: 'object',
-                additionalProperties: false,
-                required: ['title', 'artist', 'duration', 'confidence'],
+                type: 'OBJECT',
                 properties: {
-                    title: { type: 'string' },
-                    artist: { type: 'string' },
-                    duration: { type: ['string', 'null'] },
-                    confidence: { type: 'number', minimum: 0, maximum: 100 }
-                }
+                    title: { type: 'STRING' },
+                    artist: { type: 'STRING' },
+                    duration: { type: 'STRING', nullable: true },
+                    confidence: { type: 'NUMBER' }
+                },
+                required: ['title', 'artist', 'duration', 'confidence']
             }
         }
-    }
+    },
+    required: ['songs']
 };
 
 const isRetryableStatus = (status) => status === 429 || status >= 500;
@@ -43,33 +41,28 @@ const isRetryableStatus = (status) => status === 429 || status >= 500;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const buildRequestBody = (base64, mimeType) => ({
-    model: process.env.GROQ_VISION_MODEL,
-    temperature: 0,
-    messages: [
+    contents: [
         {
-            role: 'user',
-            content: [
-                { type: 'text', text: EXTRACTION_PROMPT },
-                { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } }
+            parts: [
+                { text: EXTRACTION_PROMPT },
+                { inline_data: { mime_type: mimeType, data: base64 } }
             ]
         }
     ],
-    response_format: {
-        type: 'json_schema',
-        json_schema: {
-            name: 'apple_music_songs',
-            strict: true,
-            schema: SONGS_JSON_SCHEMA
-        }
+    generationConfig: {
+        temperature: 0,
+        responseMimeType: 'application/json',
+        responseSchema: SONGS_RESPONSE_SCHEMA
     }
 });
 
-const callGroq = async (base64, mimeType, attempt = 0) => {
-    const response = await fetch(GROQ_API_URL, {
+const callGemini = async (base64, mimeType, attempt = 0) => {
+    const model = process.env.GEMINI_VISION_MODEL;
+    const response = await fetch(`${GEMINI_API_URL}/${model}:generateContent`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${process.env.GROQ_API_KEY}`
+            'x-goog-api-key': process.env.GEMINI_API_KEY
         },
         body: JSON.stringify(buildRequestBody(base64, mimeType))
     });
@@ -77,12 +70,12 @@ const callGroq = async (base64, mimeType, attempt = 0) => {
     if (!response.ok) {
         if (isRetryableStatus(response.status) && attempt < MAX_RETRIES) {
             const backoffMs = BASE_BACKOFF_MS * 2 ** attempt;
-            logger.error(`[GroqClient] Retryable status ${response.status}, attempt ${attempt + 1} of ${MAX_RETRIES}`);
+            logger.error(`[GeminiClient] Retryable status ${response.status}, attempt ${attempt + 1} of ${MAX_RETRIES}`);
             await sleep(backoffMs);
-            return callGroq(base64, mimeType, attempt + 1);
+            return callGemini(base64, mimeType, attempt + 1);
         }
 
-        logger.error(`[GroqClient] Groq request failed with status ${response.status}`);
+        logger.error(`[GeminiClient] Gemini request failed with status ${response.status}`);
         throw new AppError(EXTRACTION_FAILED_MESSAGE, 502);
     }
 
@@ -93,23 +86,23 @@ const extractSongsFromImage = async (base64, mimeType) => {
     let data;
 
     try {
-        data = await callGroq(base64, mimeType);
+        data = await callGemini(base64, mimeType);
     } catch (error) {
         if (error instanceof AppError) {
             throw error;
         }
 
-        logger.error(`[GroqClient] Network error: ${error.message}`);
+        logger.error(`[GeminiClient] Network error: ${error.message}`);
         throw new AppError(EXTRACTION_FAILED_MESSAGE, 502);
     }
 
-    const content = get(data, 'choices[0].message.content');
+    const content = get(data, 'candidates[0].content.parts[0].text');
 
     try {
         const songs = get(JSON.parse(content), 'songs');
         return Array.isArray(songs) ? songs : [];
     } catch (error) {
-        logger.error(`[GroqClient] Malformed JSON in Groq response: ${error.message}`);
+        logger.error(`[GeminiClient] Malformed JSON in Gemini response: ${error.message}`);
         throw new AppError(EXTRACTION_FAILED_MESSAGE, 502);
     }
 };
