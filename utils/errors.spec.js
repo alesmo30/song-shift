@@ -1,4 +1,4 @@
-const { AppError, ValidationError, AuthenticationError, AuthorizationError } = require('./errors');
+const { AppError, ValidationError, AuthenticationError, AuthorizationError, NotFoundError, RateLimitError, ExternalServiceError } = require('./errors');
 
 describe('utils/errors', () => {
     describe('AppError', () => {
@@ -67,6 +67,70 @@ describe('utils/errors', () => {
 
             expect(error.message).toBe('You do not have permission to perform this action');
             expect(error.statusCode).toBe(403);
+        });
+    });
+
+    describe('NotFoundError', () => {
+        it('defaults to a 404 AppError named NotFoundError', () => {
+            const error = new NotFoundError();
+
+            expect(error).toBeInstanceOf(AppError);
+            expect(error.name).toBe('NotFoundError');
+            expect(error.message).toBe('Not Found');
+            expect(error.statusCode).toBe(404);
+        });
+
+        it('accepts a custom message', () => {
+            const error = new NotFoundError('Playlist not found');
+
+            expect(error.message).toBe('Playlist not found');
+            expect(error.statusCode).toBe(404);
+        });
+    });
+
+    describe('RateLimitError', () => {
+        it('defaults message and retryAfter when called with no arguments', () => {
+            const error = new RateLimitError();
+
+            expect(error.message).toBe('Rate limit exceeded');
+            expect(error.statusCode).toBe(429);
+            expect(error.retryAfter).toBeUndefined();
+        });
+
+        it('defaults to a 429 AppError named RateLimitError carrying retryAfter', () => {
+            const error = new RateLimitError('Rate limit exceeded', 5);
+
+            expect(error).toBeInstanceOf(AppError);
+            expect(error.name).toBe('RateLimitError');
+            expect(error.message).toBe('Rate limit exceeded');
+            expect(error.statusCode).toBe(429);
+            expect(error.retryAfter).toBe(5);
+            expect(error.details).toEqual({ retryAfter: 5 });
+        });
+
+        it('accepts a custom message', () => {
+            const error = new RateLimitError('Too many requests', 10);
+
+            expect(error.message).toBe('Too many requests');
+            expect(error.retryAfter).toBe(10);
+        });
+    });
+
+    describe('ExternalServiceError', () => {
+        it('defaults to a 502 AppError named ExternalServiceError', () => {
+            const error = new ExternalServiceError();
+
+            expect(error).toBeInstanceOf(AppError);
+            expect(error.name).toBe('ExternalServiceError');
+            expect(error.message).toBe('External service is unavailable');
+            expect(error.statusCode).toBe(502);
+        });
+
+        it('accepts a custom message', () => {
+            const error = new ExternalServiceError('Spotify is unavailable');
+
+            expect(error.message).toBe('Spotify is unavailable');
+            expect(error.statusCode).toBe(502);
         });
     });
 });

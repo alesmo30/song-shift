@@ -4,6 +4,10 @@ const logger = require('../utils/logger');
 
 const errorHandler = (err, req, res, next) => {
     if (err instanceof AppError) {
+        if (err.name === 'RateLimitError' && err.retryAfter) {
+            res.set('Retry-After', String(err.retryAfter));
+        }
+
         return res.status(err.statusCode).json({
             status: 'error',
             message: err.message,

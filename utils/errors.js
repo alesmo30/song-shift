@@ -29,9 +29,34 @@ class AuthorizationError extends AppError {
     }
 }
 
+class NotFoundError extends AppError {
+    constructor(message = 'Not Found') {
+        super(message, 404);
+        this.name = 'NotFoundError';
+    }
+}
+
+class RateLimitError extends AppError {
+    constructor(message = 'Rate limit exceeded', retryAfter) {
+        super(message, 429, { retryAfter });
+        this.name = 'RateLimitError';
+        this.retryAfter = retryAfter;
+    }
+}
+
+class ExternalServiceError extends AppError {
+    constructor(message = 'External service is unavailable') {
+        super(message, 502);
+        this.name = 'ExternalServiceError';
+    }
+}
+
 module.exports = {
     AppError,
     ValidationError,
     AuthenticationError,
-    AuthorizationError
+    AuthorizationError,
+    NotFoundError,
+    RateLimitError,
+    ExternalServiceError
 };
