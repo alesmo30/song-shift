@@ -1,5 +1,5 @@
 const { AppError } = require('../../utils/errors');
-const { extractSongsFromImage } = require('./groq.client');
+const { extractSongsFromImage } = require('./gemini.client');
 
 const jsonResponse = (status, body) => ({
     ok: status >= 200 && status < 300,
@@ -7,37 +7,37 @@ const jsonResponse = (status, body) => ({
     json: () => Promise.resolve(body)
 });
 
-describe('services/groq/groq.client', () => {
+const geminiResponse = (payload) => ({
+    candidates: [{ content: { parts: [{ text: JSON.stringify(payload) }] } }]
+});
+
+describe('services/groq/gemini.client', () => {
     beforeEach(() => {
-        process.env.GROQ_API_KEY = 'test-key';
-        process.env.GROQ_VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+        process.env.GEMINI_API_KEY = 'test-key';
+        process.env.GEMINI_VISION_MODEL = 'gemini-test-model';
         global.fetch = jest.fn();
     });
 
     describe('extractSongsFromImage', () => {
         it('returns the songs parsed from a successful response', async () => {
             const songs = [{ title: 'Song', artist: 'Artist', duration: '3:24', confidence: 90 }];
-            global.fetch.mockResolvedValue(jsonResponse(200, {
-                choices: [{ message: { content: JSON.stringify({ songs }) } }]
-            }));
+            global.fetch.mockResolvedValue(jsonResponse(200, geminiResponse({ songs })));
 
             const result = await extractSongsFromImage('base64data', 'image/png');
 
             expect(result).toEqual(songs);
             expect(global.fetch).toHaveBeenCalledTimes(1);
             expect(global.fetch).toHaveBeenCalledWith(
-                'https://api.groq.com/openai/v1/chat/completions',
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-test-model:generateContent',
                 expect.objectContaining({
                     method: 'POST',
-                    headers: expect.objectContaining({ Authorization: 'Bearer test-key' })
+                    headers: expect.objectContaining({ 'x-goog-api-key': 'test-key' })
                 })
             );
         });
 
         it('returns an empty array when the response has no songs array', async () => {
-            global.fetch.mockResolvedValue(jsonResponse(200, {
-                choices: [{ message: { content: JSON.stringify({}) } }]
-            }));
+            global.fetch.mockResolvedValue(jsonResponse(200, geminiResponse({})));
 
             const result = await extractSongsFromImage('base64data', 'image/png');
 
@@ -46,11 +46,11 @@ describe('services/groq/groq.client', () => {
 
         it('throws AppError 502 when the content is malformed JSON', async () => {
             global.fetch.mockResolvedValue(jsonResponse(200, {
-                choices: [{ message: { content: 'not json' } }]
+                candidates: [{ content: { parts: [{ text: 'not json' }] } }]
             }));
 
             await expect(extractSongsFromImage('base64data', 'image/png')).rejects.toMatchObject({
-                message: 'Groq extraction failed',
+                message: 'Gemini extraction failed',
                 statusCode: 502
             });
             await expect(extractSongsFromImage('base64data', 'image/png')).rejects.toBeInstanceOf(AppError);
@@ -62,9 +62,7 @@ describe('services/groq/groq.client', () => {
             const songs = [{ title: 'Song', artist: 'Artist', duration: null, confidence: 80 }];
             global.fetch
                 .mockResolvedValueOnce(jsonResponse(429, {}))
-                .mockResolvedValueOnce(jsonResponse(200, {
-                    choices: [{ message: { content: JSON.stringify({ songs }) } }]
-                }));
+                .mockResolvedValueOnce(jsonResponse(200, geminiResponse({ songs })));
 
             const promise = extractSongsFromImage('base64data', 'image/png');
             await jest.advanceTimersByTimeAsync(500);
@@ -83,7 +81,7 @@ describe('services/groq/groq.client', () => {
 
             const promise = extractSongsFromImage('base64data', 'image/png');
             const assertion = expect(promise).rejects.toMatchObject({
-                message: 'Groq extraction failed',
+                message: 'Gemini extraction failed',
                 statusCode: 502
             });
             await jest.advanceTimersByTimeAsync(500);
@@ -102,7 +100,7 @@ describe('services/groq/groq.client', () => {
 
             const promise = extractSongsFromImage('base64data', 'image/png');
             const assertion = expect(promise).rejects.toMatchObject({
-                message: 'Groq extraction failed',
+                message: 'Gemini extraction failed',
                 statusCode: 502
             });
             await jest.advanceTimersByTimeAsync(500);
@@ -116,7 +114,7 @@ describe('services/groq/groq.client', () => {
             global.fetch.mockResolvedValue(jsonResponse(401, {}));
 
             await expect(extractSongsFromImage('base64data', 'image/png')).rejects.toMatchObject({
-                message: 'Groq extraction failed',
+                message: 'Gemini extraction failed',
                 statusCode: 502
             });
             expect(global.fetch).toHaveBeenCalledTimes(1);
@@ -126,7 +124,7 @@ describe('services/groq/groq.client', () => {
             global.fetch.mockRejectedValue(new Error('network down'));
 
             await expect(extractSongsFromImage('base64data', 'image/png')).rejects.toMatchObject({
-                message: 'Groq extraction failed',
+                message: 'Gemini extraction failed',
                 statusCode: 502
             });
         });

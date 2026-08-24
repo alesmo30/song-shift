@@ -1,8 +1,8 @@
-const { extractSongsFromImage } = require('../groq/groq.client');
+const { extractSongsFromImage } = require('../groq/gemini.client');
 const { buildSongId } = require('../../utils/song-normalizer');
 const { extractSongs } = require('./song-extraction');
 
-jest.mock('../groq/groq.client', () => ({
+jest.mock('../groq/gemini.client', () => ({
     extractSongsFromImage: jest.fn()
 }));
 
