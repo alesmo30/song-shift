@@ -7,6 +7,7 @@ const cookieParser = require('cookie-parser');
 const passport = require('passport');
 const { authRouter } = require('./router/auth.router');
 const { userRouter } = require('./router/user.router');
+const { songsRouter } = require('./router/songs.router');
 const { errorHandler } = require('./middlewares/error.handler')
 const { jwtStrategy } = require('./utils/passport/passport');
 
@@ -26,6 +27,7 @@ passport.use('jwt', jwtStrategy);
 
 server.use(authRouter);
 server.use(userRouter);
+server.use(songsRouter);
 
 server.use(errorHandler);
 
