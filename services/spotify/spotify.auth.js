@@ -1,7 +1,8 @@
 const crypto = require('crypto');
+const prisma = require('../../lib/prisma');
 const logger = require('../../utils/logger');
 const SpotifyOAuthState = require('../../mongo/spotify-oauth-state-schema');
-const { exchangeCodeForTokens, fetchSpotifyProfile, saveTokens } = require('./spotify.tokens');
+const { exchangeCodeForTokens, fetchSpotifyProfile, saveTokens, hasRequiredScopes } = require('./spotify.tokens');
 const {
     SPOTIFY_SCOPES,
     SPOTIFY_ACCOUNTS_BASE_URL,
@@ -123,7 +124,54 @@ const oauthCallback = async (req, res) => {
     return res.redirect(target.toString());
 };
 
+const getStatus = async (req, res, next) => {
+    try {
+        const account = await prisma.spotifyAccount.findUnique({ where: { userId: req.user.id } });
+
+        if (!account) {
+            return res.status(200).json({
+                connected: false,
+                spotifyUserId: null,
+                displayName: null,
+                email: null,
+                country: null,
+                scopes: [],
+                connectedAt: null,
+                needsReconnect: false
+            });
+        }
+
+        const grantedScopes = account.scopes ? account.scopes.split(' ').filter(Boolean) : [];
+        const needsReconnect = account.needsReconnect || !hasRequiredScopes(account.scopes);
+
+        return res.status(200).json({
+            connected: true,
+            spotifyUserId: account.spotifyUserId,
+            displayName: account.displayName,
+            email: account.email,
+            country: account.country,
+            scopes: grantedScopes,
+            connectedAt: account.createdAt.toISOString(),
+            needsReconnect
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+const disconnect = async (req, res, next) => {
+    try {
+        await prisma.spotifyAccount.deleteMany({ where: { userId: req.user.id } });
+        logger.info(`[Spotify] Account disconnected for user: ${req.user.id}`);
+        return res.status(204).send();
+    } catch (error) {
+        next(error);
+    }
+};
+
 module.exports = {
     startOAuth,
-    oauthCallback
+    oauthCallback,
+    getStatus,
+    disconnect
 };

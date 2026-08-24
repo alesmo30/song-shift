@@ -7,6 +7,10 @@ const server = require('../server');
 jest.mock('../lib/prisma', () => ({
     user: {
         findUnique: jest.fn()
+    },
+    spotifyAccount: {
+        findUnique: jest.fn(),
+        deleteMany: jest.fn()
     }
 }));
 
@@ -18,7 +22,18 @@ jest.mock('../mongo/spotify-oauth-state-schema', () => ({
 jest.mock('../services/spotify/spotify.tokens', () => ({
     exchangeCodeForTokens: jest.fn(),
     fetchSpotifyProfile: jest.fn(),
-    saveTokens: jest.fn()
+    saveTokens: jest.fn(),
+    hasRequiredScopes: jest.fn((scopes) => {
+        const required = [
+            'playlist-read-private',
+            'playlist-modify-private',
+            'playlist-modify-public',
+            'user-read-private',
+            'user-read-email'
+        ];
+        const granted = new Set((scopes || '').split(' ').filter(Boolean));
+        return required.every((scope) => granted.has(scope));
+    })
 }));
 
 describe('POST /spotify/auth-url (integration)', () => {
@@ -346,5 +361,186 @@ describe('GET /spotify/callback (integration)', () => {
         expect(response.headers.location).not.toContain('super-secret-auth-code');
         expect(response.headers.location).not.toContain('super-secret-access-token');
         expect(response.headers.location).not.toContain('super-secret-refresh-token');
+    });
+});
+
+describe('GET /spotify/status (integration)', () => {
+    const prisma = require('../lib/prisma');
+    const testUser = { id: 'user-1', email: 'jane@example.com', role: 'USER' };
+
+    const buildAccessToken = () => jwt.sign(
+        { email: testUser.email },
+        process.env.JWT_ACCESS_TOKEN_SECRET,
+        { expiresIn: '1h' }
+    );
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        prisma.user.findUnique.mockResolvedValue(testUser);
+    });
+
+    it('returns 401 without a JWT', async () => {
+        const response = await request(server).get('/spotify/status');
+
+        expect(response.status).toBe(401);
+    });
+
+    it('returns connected: false with null fields when there is no account', async () => {
+        prisma.spotifyAccount.findUnique.mockResolvedValue(null);
+
+        const response = await request(server)
+            .get('/spotify/status')
+            .set('Authorization', `Bearer ${buildAccessToken()}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({
+            connected: false,
+            spotifyUserId: null,
+            displayName: null,
+            email: null,
+            country: null,
+            scopes: [],
+            connectedAt: null,
+            needsReconnect: false
+        });
+    });
+
+    it('returns the connected profile with all five required scopes granted', async () => {
+        prisma.spotifyAccount.findUnique.mockResolvedValue({
+            spotifyUserId: 'spotify-user-1',
+            displayName: 'Jane',
+            email: 'jane@spotify.com',
+            country: 'US',
+            scopes: 'playlist-read-private playlist-modify-private playlist-modify-public user-read-private user-read-email',
+            needsReconnect: false,
+            createdAt: new Date('2026-01-01T00:00:00.000Z')
+        });
+
+        const response = await request(server)
+            .get('/spotify/status')
+            .set('Authorization', `Bearer ${buildAccessToken()}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body.connected).toBe(true);
+        expect(response.body.needsReconnect).toBe(false);
+        expect(response.body.connectedAt).toBe('2026-01-01T00:00:00.000Z');
+        expect(response.body.scopes).toHaveLength(5);
+    });
+
+    it('sets needsReconnect true when the persisted flag is set', async () => {
+        prisma.spotifyAccount.findUnique.mockResolvedValue({
+            spotifyUserId: 'spotify-user-1',
+            displayName: 'Jane',
+            email: null,
+            country: null,
+            scopes: 'playlist-read-private playlist-modify-private playlist-modify-public user-read-private user-read-email',
+            needsReconnect: true,
+            createdAt: new Date('2026-01-01T00:00:00.000Z')
+        });
+
+        const response = await request(server)
+            .get('/spotify/status')
+            .set('Authorization', `Bearer ${buildAccessToken()}`);
+
+        expect(response.body.needsReconnect).toBe(true);
+    });
+
+    it('sets needsReconnect true when the granted scopes no longer cover the required set', async () => {
+        prisma.spotifyAccount.findUnique.mockResolvedValue({
+            spotifyUserId: 'spotify-user-1',
+            displayName: 'Jane',
+            email: null,
+            country: null,
+            scopes: 'user-read-email',
+            needsReconnect: false,
+            createdAt: new Date('2026-01-01T00:00:00.000Z')
+        });
+
+        const response = await request(server)
+            .get('/spotify/status')
+            .set('Authorization', `Bearer ${buildAccessToken()}`);
+
+        expect(response.body.needsReconnect).toBe(true);
+    });
+
+    it('forwards unexpected errors to the error handler', async () => {
+        prisma.spotifyAccount.findUnique.mockRejectedValue(new Error('db down'));
+
+        const response = await request(server)
+            .get('/spotify/status')
+            .set('Authorization', `Bearer ${buildAccessToken()}`);
+
+        expect(response.status).toBe(500);
+    });
+
+    it('returns an empty scopes array when the account has no scopes stored', async () => {
+        prisma.spotifyAccount.findUnique.mockResolvedValue({
+            spotifyUserId: 'spotify-user-1',
+            displayName: 'Jane',
+            email: null,
+            country: null,
+            scopes: null,
+            needsReconnect: false,
+            createdAt: new Date('2026-01-01T00:00:00.000Z')
+        });
+
+        const response = await request(server)
+            .get('/spotify/status')
+            .set('Authorization', `Bearer ${buildAccessToken()}`);
+
+        expect(response.body.scopes).toEqual([]);
+        expect(response.body.needsReconnect).toBe(true);
+    });
+});
+
+describe('DELETE /spotify/connection (integration)', () => {
+    const prisma = require('../lib/prisma');
+    const testUser = { id: 'user-1', email: 'jane@example.com', role: 'USER' };
+
+    const buildAccessToken = () => jwt.sign(
+        { email: testUser.email },
+        process.env.JWT_ACCESS_TOKEN_SECRET,
+        { expiresIn: '1h' }
+    );
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        prisma.user.findUnique.mockResolvedValue(testUser);
+        prisma.spotifyAccount.deleteMany.mockResolvedValue({ count: 1 });
+    });
+
+    it('returns 401 without a JWT', async () => {
+        const response = await request(server).delete('/spotify/connection');
+
+        expect(response.status).toBe(401);
+    });
+
+    it('returns 204 and deletes the account for the authenticated user', async () => {
+        const response = await request(server)
+            .delete('/spotify/connection')
+            .set('Authorization', `Bearer ${buildAccessToken()}`);
+
+        expect(response.status).toBe(204);
+        expect(prisma.spotifyAccount.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1' } });
+    });
+
+    it('is idempotent: still returns 204 when there was nothing to delete', async () => {
+        prisma.spotifyAccount.deleteMany.mockResolvedValue({ count: 0 });
+
+        const response = await request(server)
+            .delete('/spotify/connection')
+            .set('Authorization', `Bearer ${buildAccessToken()}`);
+
+        expect(response.status).toBe(204);
+    });
+
+    it('forwards unexpected errors to the error handler', async () => {
+        prisma.spotifyAccount.deleteMany.mockRejectedValue(new Error('db down'));
+
+        const response = await request(server)
+            .delete('/spotify/connection')
+            .set('Authorization', `Bearer ${buildAccessToken()}`);
+
+        expect(response.status).toBe(500);
     });
 });
