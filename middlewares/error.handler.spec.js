@@ -1,5 +1,5 @@
 const { errorHandler } = require('./error.handler');
-const { AppError } = require('../utils/errors');
+const { AppError, RateLimitError } = require('../utils/errors');
 const logger = require('../utils/logger');
 
 jest.mock('../utils/logger', () => ({
@@ -11,6 +11,7 @@ describe('middlewares/error.handler', () => {
         const res = {};
         res.status = jest.fn().mockReturnValue(res);
         res.json = jest.fn().mockReturnValue(res);
+        res.set = jest.fn().mockReturnValue(res);
         return res;
     };
 
@@ -74,5 +75,34 @@ describe('middlewares/error.handler', () => {
         expect(payload.status).toBe('error');
         expect(payload.error).toBe('Unexpected failure');
         expect(payload.stack).toBe(error.stack);
+    });
+
+    it('sets the Retry-After header for a RateLimitError with retryAfter', () => {
+        const res = buildRes();
+        const error = new RateLimitError('Rate limit exceeded', 5);
+
+        errorHandler(error, {}, res, jest.fn());
+
+        expect(res.set).toHaveBeenCalledWith('Retry-After', '5');
+        expect(res.status).toHaveBeenCalledWith(429);
+    });
+
+    it('does not set Retry-After for a RateLimitError without retryAfter', () => {
+        const res = buildRes();
+        const error = new RateLimitError('Rate limit exceeded');
+
+        errorHandler(error, {}, res, jest.fn());
+
+        expect(res.set).not.toHaveBeenCalled();
+        expect(res.status).toHaveBeenCalledWith(429);
+    });
+
+    it('does not set Retry-After for a non-RateLimitError AppError', () => {
+        const res = buildRes();
+        const error = new AppError('Bad request', 400);
+
+        errorHandler(error, {}, res, jest.fn());
+
+        expect(res.set).not.toHaveBeenCalled();
     });
 });
