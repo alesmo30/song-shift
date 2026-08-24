@@ -26,4 +26,29 @@ model User {
   role      Role     @default(USER)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  spotifyAccount SpotifyAccount?
+}
+
+model SpotifyAccount {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  spotifyUserId String
+  displayName   String?
+  email         String?
+  country       String?
+  product       String?
+
+  accessTokenEnc       String
+  refreshTokenEnc      String
+  accessTokenExpiresAt DateTime
+  scopes               String
+  needsReconnect       Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([spotifyUserId])
 }
