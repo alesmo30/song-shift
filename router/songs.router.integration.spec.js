@@ -1,7 +1,7 @@
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
-const { extractSongsFromImage } = require('../services/groq/groq.client');
+const { extractSongsFromImage } = require('../services/groq/gemini.client');
 const { buildSongId } = require('../utils/song-normalizer');
 const server = require('../server');
 
@@ -26,7 +26,7 @@ jest.mock('jsonwebtoken', () => ({
     })
 }));
 
-jest.mock('../services/groq/groq.client', () => ({
+jest.mock('../services/groq/gemini.client', () => ({
     extractSongsFromImage: jest.fn()
 }));
 

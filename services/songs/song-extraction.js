@@ -1,4 +1,4 @@
-const { extractSongsFromImage } = require('../groq/groq.client');
+const { extractSongsFromImage } = require('../groq/gemini.client');
 const { normalizeSong, dedupeSongs } = require('../../utils/song-normalizer');
 const logger = require('../../utils/logger');
 
