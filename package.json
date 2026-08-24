@@ -39,5 +39,11 @@
     "passport-jwt": "^4.0.1",
     "pg": "^8.22.0",
     "winston": "^3.19.0"
+  },
+  "allowScripts": {
+    "@prisma/engines@7.8.0": true,
+    "fsevents@2.3.3": true,
+    "prisma@7.8.0": true,
+    "unrs-resolver@1.12.2": true
   }
 }
