@@ -3,6 +3,8 @@ const logger = require('../../utils/logger');
 const { encrypt, decrypt } = require('../../utils/crypto');
 const { AuthenticationError } = require('../../utils/errors');
 const {
+    exchangeCodeForTokens,
+    fetchSpotifyProfile,
     saveTokens,
     getDecryptedTokens,
     refreshAccessToken,
@@ -43,6 +45,74 @@ describe('services/spotify/spotify.tokens', () => {
 
     afterEach(() => {
         global.fetch = originalFetch;
+    });
+
+    describe('exchangeCodeForTokens', () => {
+        it('exchanges an authorization code for tokens', async () => {
+            global.fetch = jest.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    access_token: 'access-value',
+                    refresh_token: 'refresh-value',
+                    expires_in: 3600,
+                    scope: 'user-read-email'
+                })
+            });
+
+            const result = await exchangeCodeForTokens('auth-code-123');
+
+            expect(result.access_token).toBe('access-value');
+            expect(global.fetch).toHaveBeenCalledWith(
+                expect.stringContaining('/api/token'),
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: expect.objectContaining({
+                        Authorization: expect.stringContaining('Basic ')
+                    })
+                })
+            );
+            global.fetch = originalFetch;
+        });
+
+        it('throws AuthenticationError when the exchange fails', async () => {
+            global.fetch = jest.fn().mockResolvedValue({
+                ok: false,
+                json: async () => ({ error: 'invalid_grant' })
+            });
+
+            await expect(exchangeCodeForTokens('bad-code')).rejects.toThrow(AuthenticationError);
+            global.fetch = originalFetch;
+        });
+    });
+
+    describe('fetchSpotifyProfile', () => {
+        it('returns the profile when the request succeeds', async () => {
+            global.fetch = jest.fn().mockResolvedValue({
+                ok: true,
+                json: async () => ({ id: 'spotify-user-1', display_name: 'Jane' })
+            });
+
+            const result = await fetchSpotifyProfile('access-token-value');
+
+            expect(result.id).toBe('spotify-user-1');
+            expect(global.fetch).toHaveBeenCalledWith(
+                expect.stringContaining('/v1/me'),
+                expect.objectContaining({
+                    headers: { Authorization: 'Bearer access-token-value' }
+                })
+            );
+            global.fetch = originalFetch;
+        });
+
+        it('throws AuthenticationError when the profile request fails', async () => {
+            global.fetch = jest.fn().mockResolvedValue({
+                ok: false,
+                json: async () => ({ error: 'invalid_token' })
+            });
+
+            await expect(fetchSpotifyProfile('bad-token')).rejects.toThrow(AuthenticationError);
+            global.fetch = originalFetch;
+        });
     });
 
     describe('saveTokens', () => {

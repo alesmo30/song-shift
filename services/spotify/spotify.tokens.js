@@ -5,12 +5,48 @@ const { AuthenticationError } = require('../../utils/errors');
 const {
     SPOTIFY_SCOPES,
     SPOTIFY_ACCOUNTS_BASE_URL,
+    SPOTIFY_API_BASE_URL,
     ACCESS_TOKEN_EXPIRY_MARGIN_MS
 } = require('./const/spotify.constants');
 
 // Evita que dos peticiones concurrentes con el token vencido disparen dos
 // refrescos: la segunda espera a la promesa ya en vuelo de la primera.
 const refreshPromises = new Map();
+
+const exchangeCodeForTokens = async (code) => {
+    const basicAuth = Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString('base64');
+
+    const response = await fetch(`${SPOTIFY_ACCOUNTS_BASE_URL}/api/token`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            Authorization: `Basic ${basicAuth}`
+        },
+        body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            code,
+            redirect_uri: process.env.SPOTIFY_REDIRECT_URI
+        })
+    });
+
+    if (!response.ok) {
+        throw new AuthenticationError('Failed to exchange authorization code');
+    }
+
+    return response.json();
+};
+
+const fetchSpotifyProfile = async (accessToken) => {
+    const response = await fetch(`${SPOTIFY_API_BASE_URL}/v1/me`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+    });
+
+    if (!response.ok) {
+        throw new AuthenticationError('Failed to fetch Spotify profile');
+    }
+
+    return response.json();
+};
 
 const saveTokens = async (userId, {
     spotifyUserId,
@@ -145,6 +181,8 @@ const hasRequiredScopes = (grantedScopes) => {
 };
 
 module.exports = {
+    exchangeCodeForTokens,
+    fetchSpotifyProfile,
     saveTokens,
     getDecryptedTokens,
     refreshAccessToken,
