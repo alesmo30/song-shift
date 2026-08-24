@@ -19,6 +19,8 @@ node index.js      # Run without auto-reload
 
 Always use `./node_modules/.bin/prisma` directly — `npx prisma` hangs in this project due to the RTK proxy.
 
+The database has no migration history (`prisma/migrations/` does not exist) — the schema was originally applied with `db push`, not `migrate dev`. Running `migrate dev` against it reports schema drift and offers to reset the database. Keep using `db push` for schema changes until a first migration baseline is established.
+
 ## Architecture
 
 **Entry point**: `index.js` loads `dotenv/config` first, creates an HTTP server from `server.js`, and registers global error handlers.
@@ -33,13 +35,21 @@ Always use `./node_modules/.bin/prisma` directly — `npx prisma` hangs in this 
 
 **Prisma 7 + Supabase setup**: The project uses Prisma 7 with `prisma-client-js` generator (not `prisma-client`, which generates TS-only output). The `prisma.config.ts` uses `DIRECT_URL` (session-mode pooler, port 5432) for CLI operations. `lib/prisma.js` uses `DATABASE_URL` (transaction pooler, port 6543) via `@prisma/adapter-pg` — required by Prisma 7's WASM engine. Two env vars are mandatory: `DATABASE_URL` and `DIRECT_URL`.
 
-**Error hierarchy** (`utils/errors.js`): `AppError` is the base class with `statusCode`, `details`, and `isOperational`. Subclasses: `ValidationError` (400), `AuthenticationError` (401), `AuthorizationError` (403). The global `errorHandler` middleware in `server.js` catches all `AppError` instances and formats the response.
+**Error hierarchy** (`utils/errors.js`): `AppError` is the base class with `statusCode`, `details`, and `isOperational`. Subclasses: `ValidationError` (400), `AuthenticationError` (401), `AuthorizationError` (403), `NotFoundError` (404), `RateLimitError` (429, carries `retryAfter` in `details`), `ExternalServiceError` (502). The global `errorHandler` middleware in `server.js` catches all `AppError` instances and formats the response; for `RateLimitError` it also sets the `Retry-After` response header.
 
 **Services**: Stateless functions exported directly (e.g. `services/users/user.js`). The exception is `TokenService` (`services/token/token.service.js`), which is a class because it needs injectable config (token type, secrets) and supports multiple instances with different behavior.
 
 **Validation**: Joi schemas in `middlewares/` validate request bodies before they reach services. `ValidationError` is thrown directly from middleware — the global error handler catches it.
 
 **Logging**: Winston via `utils/logger.js`. Level is `debug` in development, `info` in production. Use `logger.info` / `logger.error` in services, not `console.log`.
+
+**Spotify OAuth** (`services/spotify/`, `router/spotify.router.js`, spec `specs/02-spotify-oauth.md`): the backend owns the full Authorization Code flow — the frontend never sees a Spotify token. Five new env vars: `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REDIRECT_URI` (must be `http://127.0.0.1:3000/spotify/callback` in dev — Spotify rejects `localhost` redirect URIs), `SPOTIFY_TOKEN_ENC_KEY` (32 bytes base64, `openssl rand -base64 32`), and `FRONTEND_URL` (already read by `server.js` for CORS). Both the access and refresh tokens are encrypted at rest via `utils/crypto.js` (AES-256-GCM, format `v1:iv:tag:ct`) before being stored in `SpotifyAccount`; only `services/spotify/spotify.tokens.js` decrypts them.
+
+Before testing the OAuth flow, the Spotify account you authorize with **must** be added under Settings → User Management in the Spotify developer dashboard — the app runs in Development Mode with a 25-user allowlist, and a non-allowlisted user gets an opaque consent-screen error that looks like a code bug.
+
+The `state` query param on `/spotify/callback` is a single-use, 10-minute CSRF token stored in Mongo (`mongo/spotify-oauth-state-schema.js`, TTL index on `expiresAt`) — it is what ties an incoming `code` back to the Totify user who started the flow, since the callback is a bare browser redirect with no `Authorization` header to identify the user otherwise. `GET /spotify/callback` always responds with a 3xx redirect to `FRONTEND_URL` (`?spotify=connected` or `?spotify=error&reason=...`), never JSON — the only exception is a bare 400 when `state` is missing entirely.
+
+**A failed Spotify token refresh (`invalid_grant`, or a second consecutive 401 from `spotifyFetch`) must respond `409` with `{ code: 'SPOTIFY_REAUTH_REQUIRED' }`, never `401`.** The frontend's axios response interceptor (`frontend/src/api/client.ts`) fires `/renew-tokens` on any `401` that isn't `/login` — returning `401` for a dead Spotify grant would trigger a pointless Totify token refresh and a confusing retry loop instead of surfacing a "reconnect Spotify" prompt.
 
 ### Import order convention
 
