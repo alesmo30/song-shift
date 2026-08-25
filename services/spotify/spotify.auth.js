@@ -137,7 +137,8 @@ const getStatus = async (req, res, next) => {
                 country: null,
                 scopes: [],
                 connectedAt: null,
-                needsReconnect: false
+                needsReconnect: false,
+                defaultPlaylistId: null
             });
         }
 
@@ -152,7 +153,8 @@ const getStatus = async (req, res, next) => {
             country: account.country,
             scopes: grantedScopes,
             connectedAt: account.createdAt.toISOString(),
-            needsReconnect
+            needsReconnect,
+            defaultPlaylistId: account.defaultPlaylistId
         });
     } catch (error) {
         next(error);

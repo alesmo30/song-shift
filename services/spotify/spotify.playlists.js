@@ -40,7 +40,23 @@ const createPlaylist = async (req, res, next) => {
     }
 };
 
+const setDefaultPlaylist = async (req, res, next) => {
+    try {
+        const { playlistId } = req.body;
+
+        await prisma.spotifyAccount.update({
+            where: { userId: req.user.id },
+            data: { defaultPlaylistId: playlistId }
+        });
+
+        return res.status(200).json({ defaultPlaylistId: playlistId });
+    } catch (error) {
+        next(error);
+    }
+};
+
 module.exports = {
     listPlaylists,
-    createPlaylist
+    createPlaylist,
+    setDefaultPlaylist
 };

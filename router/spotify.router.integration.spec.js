@@ -10,7 +10,8 @@ jest.mock('../lib/prisma', () => ({
     },
     spotifyAccount: {
         findUnique: jest.fn(),
-        deleteMany: jest.fn()
+        deleteMany: jest.fn(),
+        update: jest.fn()
     }
 }));
 
@@ -401,7 +402,8 @@ describe('GET /spotify/status (integration)', () => {
             country: null,
             scopes: [],
             connectedAt: null,
-            needsReconnect: false
+            needsReconnect: false,
+            defaultPlaylistId: null
         });
     });
 
@@ -413,7 +415,8 @@ describe('GET /spotify/status (integration)', () => {
             country: 'US',
             scopes: 'playlist-read-private playlist-modify-private playlist-modify-public user-read-private user-read-email',
             needsReconnect: false,
-            createdAt: new Date('2026-01-01T00:00:00.000Z')
+            createdAt: new Date('2026-01-01T00:00:00.000Z'),
+            defaultPlaylistId: 'playlist-id'
         });
 
         const response = await request(server)
@@ -425,6 +428,7 @@ describe('GET /spotify/status (integration)', () => {
         expect(response.body.needsReconnect).toBe(false);
         expect(response.body.connectedAt).toBe('2026-01-01T00:00:00.000Z');
         expect(response.body.scopes).toHaveLength(5);
+        expect(response.body.defaultPlaylistId).toBe('playlist-id');
     });
 
     it('sets needsReconnect true when the persisted flag is set', async () => {
@@ -540,6 +544,76 @@ describe('DELETE /spotify/connection (integration)', () => {
         const response = await request(server)
             .delete('/spotify/connection')
             .set('Authorization', `Bearer ${buildAccessToken()}`);
+
+        expect(response.status).toBe(500);
+    });
+});
+
+describe('PUT /spotify/default-playlist (integration)', () => {
+    const testUser = { id: 'user-1', email: 'jane@example.com', role: 'USER' };
+
+    const buildAccessToken = () => jwt.sign(
+        { email: testUser.email },
+        process.env.JWT_ACCESS_TOKEN_SECRET,
+        { expiresIn: '1h' }
+    );
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        prisma.user.findUnique.mockResolvedValue(testUser);
+        prisma.spotifyAccount.update.mockResolvedValue({});
+    });
+
+    it('returns 401 without a JWT', async () => {
+        const response = await request(server).put('/spotify/default-playlist').send({ playlistId: 'playlist-id' });
+
+        expect(response.status).toBe(401);
+    });
+
+    it('saves the playlistId and returns it', async () => {
+        const response = await request(server)
+            .put('/spotify/default-playlist')
+            .set('Authorization', `Bearer ${buildAccessToken()}`)
+            .send({ playlistId: 'playlist-id' });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ defaultPlaylistId: 'playlist-id' });
+        expect(prisma.spotifyAccount.update).toHaveBeenCalledWith({
+            where: { userId: 'user-1' },
+            data: { defaultPlaylistId: 'playlist-id' }
+        });
+    });
+
+    it('clears the playlistId when sent null', async () => {
+        const response = await request(server)
+            .put('/spotify/default-playlist')
+            .set('Authorization', `Bearer ${buildAccessToken()}`)
+            .send({ playlistId: null });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ defaultPlaylistId: null });
+        expect(prisma.spotifyAccount.update).toHaveBeenCalledWith({
+            where: { userId: 'user-1' },
+            data: { defaultPlaylistId: null }
+        });
+    });
+
+    it('returns 400 when playlistId is missing', async () => {
+        const response = await request(server)
+            .put('/spotify/default-playlist')
+            .set('Authorization', `Bearer ${buildAccessToken()}`)
+            .send({});
+
+        expect(response.status).toBe(400);
+    });
+
+    it('forwards unexpected errors to the error handler', async () => {
+        prisma.spotifyAccount.update.mockRejectedValue(new Error('db down'));
+
+        const response = await request(server)
+            .put('/spotify/default-playlist')
+            .set('Authorization', `Bearer ${buildAccessToken()}`)
+            .send({ playlistId: 'playlist-id' });
 
         expect(response.status).toBe(500);
     });
