@@ -22,6 +22,38 @@ const authUrlSchemaValidation = (req, res, next) => {
     next();
 };
 
+const createPlaylistSchema = Joi.object({
+    name: Joi.string().min(1).max(100).required()
+});
+
+const createPlaylistSchemaValidation = (req, res, next) => {
+    const { error, value } = createPlaylistSchema.validate(req.body, { abortEarly: false });
+
+    if (error) {
+        throw new ValidationError(formatJoiErrors(error));
+    }
+
+    req.body = value;
+    next();
+};
+
+const defaultPlaylistSchema = Joi.object({
+    playlistId: Joi.string().allow(null).required()
+});
+
+const defaultPlaylistSchemaValidation = (req, res, next) => {
+    const { error, value } = defaultPlaylistSchema.validate(req.body, { abortEarly: false });
+
+    if (error) {
+        throw new ValidationError(formatJoiErrors(error));
+    }
+
+    req.body = value;
+    next();
+};
+
 module.exports = {
-    authUrlSchemaValidation
+    authUrlSchemaValidation,
+    createPlaylistSchemaValidation,
+    defaultPlaylistSchemaValidation
 };
