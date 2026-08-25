@@ -25,6 +25,22 @@ const listPlaylists = async (req, res, next) => {
     }
 };
 
+const createPlaylist = async (req, res, next) => {
+    try {
+        const { name } = req.body;
+
+        const playlist = await spotifyFetch(req.user.id, '/v1/me/playlists', {
+            method: 'POST',
+            body: { name, public: false }
+        });
+
+        return res.status(201).json(toPlaylistDTO(playlist));
+    } catch (error) {
+        next(error);
+    }
+};
+
 module.exports = {
-    listPlaylists
+    listPlaylists,
+    createPlaylist
 };
