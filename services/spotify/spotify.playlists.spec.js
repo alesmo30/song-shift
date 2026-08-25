@@ -120,9 +120,8 @@ describe('services/spotify/spotify.playlists', () => {
             }));
         });
 
-        it('forwards a 409 SPOTIFY_REAUTH_REQUIRED to the error handler when there is no connected account', async () => {
+        it('forwards a 409 SPOTIFY_NOT_CONNECTED to the error handler when there is no connected account', async () => {
             prisma.spotifyAccount.findUnique.mockResolvedValue(null);
-            spotifyTokens.getDecryptedTokens.mockResolvedValue(null);
             global.fetch = jest.fn();
 
             const req = buildReq();
@@ -133,9 +132,10 @@ describe('services/spotify/spotify.playlists', () => {
 
             expect(next).toHaveBeenCalledWith(expect.objectContaining({
                 statusCode: 409,
-                details: { code: 'SPOTIFY_REAUTH_REQUIRED' }
+                details: { code: 'SPOTIFY_NOT_CONNECTED' }
             }));
             expect(res.json).not.toHaveBeenCalled();
+            expect(global.fetch).not.toHaveBeenCalled();
         });
 
         it('forwards a RateLimitError with Retry-After to the error handler', async () => {
@@ -159,6 +159,7 @@ describe('services/spotify/spotify.playlists', () => {
 
     describe('createPlaylist', () => {
         it('creates the playlist as private and returns the mapped DTO', async () => {
+            prisma.spotifyAccount.findUnique.mockResolvedValue({ spotifyUserId: 'spotify-user-1' });
             spotifyTokens.getDecryptedTokens.mockResolvedValue(validTokens);
             global.fetch = jest.fn().mockResolvedValue(buildResponse({
                 status: 200,
@@ -182,6 +183,23 @@ describe('services/spotify/spotify.playlists', () => {
 
             const [, init] = global.fetch.mock.calls[0];
             expect(JSON.parse(init.body)).toEqual({ name: 'My Playlist', public: false });
+        });
+
+        it('forwards a 409 SPOTIFY_NOT_CONNECTED to the error handler when there is no connected account', async () => {
+            prisma.spotifyAccount.findUnique.mockResolvedValue(null);
+            global.fetch = jest.fn();
+
+            const req = buildReq({ body: { name: 'My Playlist' } });
+            const res = buildRes();
+            const next = jest.fn();
+
+            await createPlaylist(req, res, next);
+
+            expect(next).toHaveBeenCalledWith(expect.objectContaining({
+                statusCode: 409,
+                details: { code: 'SPOTIFY_NOT_CONNECTED' }
+            }));
+            expect(global.fetch).not.toHaveBeenCalled();
         });
     });
 

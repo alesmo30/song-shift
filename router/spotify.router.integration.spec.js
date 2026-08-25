@@ -661,9 +661,8 @@ describe('GET /spotify/playlists (integration)', () => {
         expect(response.status).toBe(401);
     });
 
-    it('returns 409 SPOTIFY_REAUTH_REQUIRED when there is no connected account', async () => {
+    it('returns 409 SPOTIFY_NOT_CONNECTED when there is no connected account', async () => {
         prisma.spotifyAccount.findUnique.mockResolvedValue(null);
-        spotifyTokens.getDecryptedTokens.mockResolvedValue(null);
         global.fetch = jest.fn();
 
         const response = await request(server)
@@ -671,7 +670,8 @@ describe('GET /spotify/playlists (integration)', () => {
             .set('Authorization', `Bearer ${buildAccessToken()}`);
 
         expect(response.status).toBe(409);
-        expect(response.body.errors.code).toBe('SPOTIFY_REAUTH_REQUIRED');
+        expect(response.body.errors.code).toBe('SPOTIFY_NOT_CONNECTED');
+        expect(global.fetch).not.toHaveBeenCalled();
     });
 
     it('returns only playlists owned by the authenticated Spotify user', async () => {
@@ -743,6 +743,7 @@ describe('POST /spotify/playlists (integration)', () => {
     beforeEach(() => {
         jest.clearAllMocks();
         prisma.user.findUnique.mockResolvedValue(testUser);
+        prisma.spotifyAccount.findUnique.mockResolvedValue({ spotifyUserId: 'spotify-user-1' });
         spotifyTokens.getDecryptedTokens.mockResolvedValue(validTokens);
     });
 
@@ -757,6 +758,20 @@ describe('POST /spotify/playlists (integration)', () => {
             .send({});
 
         expect(response.status).toBe(400);
+    });
+
+    it('returns 409 SPOTIFY_NOT_CONNECTED when there is no connected account', async () => {
+        prisma.spotifyAccount.findUnique.mockResolvedValue(null);
+        global.fetch = jest.fn();
+
+        const response = await request(server)
+            .post('/spotify/playlists')
+            .set('Authorization', `Bearer ${buildAccessToken()}`)
+            .send({ name: 'My Playlist' });
+
+        expect(response.status).toBe(409);
+        expect(response.body.errors.code).toBe('SPOTIFY_NOT_CONNECTED');
+        expect(global.fetch).not.toHaveBeenCalled();
     });
 
     it('creates the playlist as private', async () => {

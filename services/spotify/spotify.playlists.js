@@ -1,12 +1,23 @@
 const prisma = require('../../lib/prisma');
+const { AppError } = require('../../utils/errors');
 const { spotifyFetch } = require('./spotify.client');
 const { toPlaylistDTO } = require('./playlist.mapper');
+
+const requireAccount = async (userId) => {
+    const account = await prisma.spotifyAccount.findUnique({ where: { userId } });
+
+    if (!account) {
+        throw new AppError('Spotify account not connected', 409, { code: 'SPOTIFY_NOT_CONNECTED' });
+    }
+
+    return account;
+};
 
 const listPlaylists = async (req, res, next) => {
     try {
         const { limit = 20, offset = 0 } = req.query;
 
-        const account = await prisma.spotifyAccount.findUnique({ where: { userId: req.user.id } });
+        const account = await requireAccount(req.user.id);
 
         const data = await spotifyFetch(req.user.id, '/v1/me/playlists', { query: { limit, offset } });
 
@@ -28,6 +39,8 @@ const listPlaylists = async (req, res, next) => {
 const createPlaylist = async (req, res, next) => {
     try {
         const { name } = req.body;
+
+        await requireAccount(req.user.id);
 
         const playlist = await spotifyFetch(req.user.id, '/v1/me/playlists', {
             method: 'POST',
