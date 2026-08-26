@@ -92,6 +92,11 @@ const spotifyFetch = async (userId, path, options = {}) => {
         }
     }
 
+    if (response.status >= 500 && options.retryServerErrors === false) {
+        logger.error(`[Spotify] ${response.status} for path: ${path}, not retrying (retryServerErrors: false)`);
+        throw new ExternalServiceError('Spotify is unavailable');
+    }
+
     if (response.status >= 500) {
         logger.error(`[Spotify] ${response.status} for path: ${path}, retrying once`);
         response = await requestWithRateLimitRetry(accessToken, path, options);
