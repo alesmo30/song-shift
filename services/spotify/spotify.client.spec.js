@@ -177,6 +177,14 @@ describe('services/spotify/spotify.client', () => {
         expect(global.fetch).toHaveBeenCalledTimes(2);
     });
 
+    it('does not retry a 5xx when retryServerErrors is false, and throws ExternalServiceError immediately', async () => {
+        spotifyTokens.getDecryptedTokens.mockResolvedValue(validTokens);
+        global.fetch = jest.fn().mockResolvedValue(buildResponse({ status: 502 }));
+
+        await expect(spotifyFetch('user-1', '/v1/me', { retryServerErrors: false })).rejects.toThrow(ExternalServiceError);
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
     it('throws an AppError with the Spotify status for other non-ok responses', async () => {
         spotifyTokens.getDecryptedTokens.mockResolvedValue(validTokens);
         global.fetch = jest.fn().mockResolvedValue(

@@ -171,15 +171,7 @@ describe('songs.router (integration)', () => {
     });
 
     describe('POST /songs/playlist', () => {
-        it('returns 401 without an Authorization header', async () => {
-            const response = await request(server)
-                .post('/songs/playlist')
-                .send({ songs: [] });
-
-            expect(response.status).toBe(401);
-        });
-
-        it('returns 400 when songs is empty', async () => {
+        it('returns 404 — the stub route was removed in spec 04', async () => {
             const token = buildToken({ email: authenticatedUser.email });
 
             const response = await request(server)
@@ -187,20 +179,7 @@ describe('songs.router (integration)', () => {
                 .set('Authorization', `Bearer ${token}`)
                 .send({ songs: [] });
 
-            expect(response.status).toBe(400);
-        });
-
-        it('returns 202 with status not-implemented for 1..100 songs', async () => {
-            const token = buildToken({ email: authenticatedUser.email });
-            const songs = [{ id: 'abc123', title: 'Song', artist: 'Artist', duration: '3:00' }];
-
-            const response = await request(server)
-                .post('/songs/playlist')
-                .set('Authorization', `Bearer ${token}`)
-                .send({ songs });
-
-            expect(response.status).toBe(202);
-            expect(response.body.status).toBe('not-implemented');
+            expect(response.status).toBe(404);
         });
     });
 });
