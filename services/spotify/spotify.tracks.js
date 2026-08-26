@@ -60,37 +60,55 @@ const partitionByDuplicates = (uris, existingUris) => {
     return { toWrite, skippedDuplicates };
 };
 
+const translatePlaylistNotFound = async (req, account, playlistId) => {
+    if (account.defaultPlaylistId === playlistId) {
+        await prisma.spotifyAccount.update({
+            where: { userId: req.user.id },
+            data: { defaultPlaylistId: null }
+        });
+    }
+
+    return new AppError('Spotify playlist not found', 404, { code: 'SPOTIFY_PLAYLIST_NOT_FOUND' });
+};
+
 const addTracks = async (req, res, next) => {
     try {
         const { playlistId } = req.params;
         const { uris } = req.body;
 
-        await requireAccount(req.user.id);
+        const account = await requireAccount(req.user.id);
 
-        const existingUris = await readPlaylistUris(req.user.id, playlistId);
-        const { toWrite, skippedDuplicates } = partitionByDuplicates(uris, existingUris);
+        try {
+            const existingUris = await readPlaylistUris(req.user.id, playlistId);
+            const { toWrite, skippedDuplicates } = partitionByDuplicates(uris, existingUris);
 
-        const added = [];
-        const failed = [];
-        let snapshotId = null;
+            const added = [];
+            const failed = [];
+            let snapshotId = null;
 
-        for (const batch of chunk(toWrite, WRITE_BATCH_SIZE)) {
-            try {
-                const data = await spotifyFetch(req.user.id, `/v1/playlists/${playlistId}/items`, {
-                    method: 'POST',
-                    body: { uris: batch },
-                    retryServerErrors: false
-                });
+            for (const batch of chunk(toWrite, WRITE_BATCH_SIZE)) {
+                try {
+                    const data = await spotifyFetch(req.user.id, `/v1/playlists/${playlistId}/items`, {
+                        method: 'POST',
+                        body: { uris: batch },
+                        retryServerErrors: false
+                    });
 
-                added.push(...batch);
-                snapshotId = data?.snapshot_id ?? snapshotId;
-            } catch (error) {
-                logger.error(`[Spotify] batch write failed for playlist ${playlistId}: ${error.message}`);
-                batch.forEach((uri) => failed.push({ uri, reason: 'batch-failed' }));
+                    added.push(...batch);
+                    snapshotId = data?.snapshot_id ?? snapshotId;
+                } catch (error) {
+                    if (error.statusCode === 404) throw error;
+
+                    logger.error(`[Spotify] batch write failed for playlist ${playlistId}: ${error.message}`);
+                    batch.forEach((uri) => failed.push({ uri, reason: 'batch-failed' }));
+                }
             }
-        }
 
-        return res.status(200).json({ added, skippedDuplicates, failed, snapshotId });
+            return res.status(200).json({ added, skippedDuplicates, failed, snapshotId });
+        } catch (error) {
+            if (error.statusCode === 404) throw await translatePlaylistNotFound(req, account, playlistId);
+            throw error;
+        }
     } catch (error) {
         next(error);
     }

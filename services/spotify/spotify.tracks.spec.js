@@ -1,5 +1,6 @@
 const prisma = require('../../lib/prisma');
 const { spotifyFetch } = require('./spotify.client');
+const { AppError } = require('../../utils/errors');
 const { readPlaylistUris, addTracks } = require('./spotify.tracks');
 
 jest.mock('./spotify.client', () => ({
@@ -8,7 +9,8 @@ jest.mock('./spotify.client', () => ({
 
 jest.mock('../../lib/prisma', () => ({
     spotifyAccount: {
-        findUnique: jest.fn()
+        findUnique: jest.fn(),
+        update: jest.fn()
     }
 }));
 
@@ -201,6 +203,68 @@ describe('services/spotify/spotify.tracks', () => {
                 details: { code: 'SPOTIFY_NOT_CONNECTED' }
             }));
             expect(spotifyFetch).not.toHaveBeenCalled();
+        });
+
+        it('translates a 404 while reading the playlist and clears defaultPlaylistId when it matches', async () => {
+            prisma.spotifyAccount.findUnique.mockResolvedValue({ userId: 'user-1', defaultPlaylistId: 'playlist-1' });
+            prisma.spotifyAccount.update.mockResolvedValue({});
+            spotifyFetch.mockRejectedValueOnce(new AppError('Not Found', 404));
+
+            const req = buildReq({ body: { uris: ['spotify:track:a'] } });
+            const res = buildRes();
+            const next = jest.fn();
+
+            await addTracks(req, res, next);
+
+            expect(next).toHaveBeenCalledWith(expect.objectContaining({
+                statusCode: 404,
+                details: { code: 'SPOTIFY_PLAYLIST_NOT_FOUND' }
+            }));
+            expect(prisma.spotifyAccount.update).toHaveBeenCalledWith({
+                where: { userId: 'user-1' },
+                data: { defaultPlaylistId: null }
+            });
+        });
+
+        it('translates a 404 while writing a batch, keeping earlier batches as added', async () => {
+            prisma.spotifyAccount.findUnique.mockResolvedValue({ userId: 'user-1', defaultPlaylistId: 'playlist-1' });
+            prisma.spotifyAccount.update.mockResolvedValue({});
+            const uris = Array.from({ length: 150 }, (_, i) => `spotify:track:${i}`);
+
+            spotifyFetch
+                .mockResolvedValueOnce({ items: [], next: null })
+                .mockResolvedValueOnce({ snapshot_id: 'snap-a' })
+                .mockRejectedValueOnce(new AppError('Not Found', 404));
+
+            const req = buildReq({ body: { uris } });
+            const res = buildRes();
+            const next = jest.fn();
+
+            await addTracks(req, res, next);
+
+            expect(next).toHaveBeenCalledWith(expect.objectContaining({
+                statusCode: 404,
+                details: { code: 'SPOTIFY_PLAYLIST_NOT_FOUND' }
+            }));
+            expect(res.json).not.toHaveBeenCalled();
+            expect(prisma.spotifyAccount.update).toHaveBeenCalledWith({
+                where: { userId: 'user-1' },
+                data: { defaultPlaylistId: null }
+            });
+        });
+
+        it('does not clear defaultPlaylistId when the 404 playlist is not the default one', async () => {
+            prisma.spotifyAccount.findUnique.mockResolvedValue({ userId: 'user-1', defaultPlaylistId: 'some-other-playlist' });
+            spotifyFetch.mockRejectedValueOnce(new AppError('Not Found', 404));
+
+            const req = buildReq({ body: { uris: ['spotify:track:a'] } });
+            const res = buildRes();
+            const next = jest.fn();
+
+            await addTracks(req, res, next);
+
+            expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 404 }));
+            expect(prisma.spotifyAccount.update).not.toHaveBeenCalled();
         });
     });
 });
