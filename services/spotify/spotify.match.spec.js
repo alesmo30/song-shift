@@ -1,7 +1,7 @@
 const prisma = require('../../lib/prisma');
 const { spotifyFetch } = require('./spotify.client');
 const { RateLimitError, AppError } = require('../../utils/errors');
-const { buildQueries, matchTracks } = require('./spotify.match');
+const { buildQueries, matchTracks, searchTracks } = require('./spotify.match');
 
 jest.mock('../../lib/prisma', () => ({
     spotifyAccount: {
@@ -22,6 +22,7 @@ describe('services/spotify/spotify.match', () => {
     const buildReq = (overrides = {}) => ({
         user: { id: 'user-1' },
         body: {},
+        query: {},
         ...overrides
     });
 
@@ -217,6 +218,50 @@ describe('services/spotify/spotify.match', () => {
             await matchTracks(req, res, next);
 
             expect(maxActive).toBeLessThanOrEqual(5);
+        });
+    });
+
+    describe('searchTracks', () => {
+        it('returns mapped TrackMatch items with confidence null', async () => {
+            spotifyFetch.mockResolvedValueOnce({ tracks: { items: [track()] } });
+
+            const req = buildReq({ query: { q: 'espresso', limit: '10' } });
+            const res = buildRes();
+            const next = jest.fn();
+
+            await searchTracks(req, res, next);
+
+            expect(spotifyFetch).toHaveBeenCalledWith('user-1', '/v1/search', {
+                query: { q: 'espresso', type: 'track', limit: '10' }
+            });
+            expect(res.status).toHaveBeenCalledWith(200);
+            const [{ items }] = res.json.mock.calls[0];
+            expect(items).toHaveLength(1);
+            expect(items[0].confidence).toBeNull();
+            expect(items[0].isCompilation).toBeUndefined();
+            expect(items[0]).toEqual(expect.objectContaining({ uri: track().uri, title: 'Cruel Summer' }));
+        });
+
+        it('returns 400 without calling Spotify when q is empty', async () => {
+            const req = buildReq({ query: { q: '' } });
+            const res = buildRes();
+            const next = jest.fn();
+
+            await searchTracks(req, res, next);
+
+            expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 400 }));
+            expect(spotifyFetch).not.toHaveBeenCalled();
+            expect(res.json).not.toHaveBeenCalled();
+        });
+
+        it('returns 400 when q is missing entirely', async () => {
+            const req = buildReq({ query: {} });
+            const res = buildRes();
+            const next = jest.fn();
+
+            await searchTracks(req, res, next);
+
+            expect(next).toHaveBeenCalledWith(expect.objectContaining({ statusCode: 400 }));
         });
     });
 });

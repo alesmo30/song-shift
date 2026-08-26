@@ -1,6 +1,6 @@
 const prisma = require('../../lib/prisma');
 const logger = require('../../utils/logger');
-const { AppError } = require('../../utils/errors');
+const { AppError, ValidationError } = require('../../utils/errors');
 const { mapWithConcurrency } = require('../../utils/concurrency');
 const { spotifyFetch } = require('./spotify.client');
 const { normalizeTitle, normalizeArtist, pickBest } = require('./matching');
@@ -53,6 +53,11 @@ const searchOnce = async (userId, query) => {
     return data?.tracks?.items ?? [];
 };
 
+const toTrackMatchDTO = (candidate, confidence, reasons = []) => {
+    const { isCompilation, ...trackMatch } = candidate;
+    return { ...trackMatch, confidence, reasons };
+};
+
 const matchOneSong = async (userId, market, song) => {
     const queries = buildQueries(song, market);
     let lastResult = { status: 'not_found', best: null, candidates: [] };
@@ -96,7 +101,25 @@ const matchTracks = async (req, res, next) => {
     }
 };
 
+const searchTracks = async (req, res, next) => {
+    try {
+        const { q, limit = 10 } = req.query;
+
+        if (!q || !String(q).trim()) {
+            throw new ValidationError({ q: 'q is required' });
+        }
+
+        const items = await searchOnce(req.user.id, { q, type: 'track', limit });
+        const results = items.map((track) => toTrackMatchDTO(toCandidate(track), null));
+
+        return res.status(200).json({ items: results });
+    } catch (error) {
+        next(error);
+    }
+};
+
 module.exports = {
     buildQueries,
-    matchTracks
+    matchTracks,
+    searchTracks
 };
