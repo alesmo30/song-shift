@@ -9,7 +9,8 @@ const songSelectionSchema = Joi.object({
                 id: Joi.string().required(),
                 title: Joi.string().required(),
                 artist: Joi.string().required(),
-                duration: Joi.string().allow(null)
+                duration: Joi.string().allow(null),
+                confidence: Joi.number()
             })
         )
         .min(1)
