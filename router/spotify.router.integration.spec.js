@@ -798,3 +798,271 @@ describe('POST /spotify/playlists (integration)', () => {
         expect(JSON.parse(init.body)).toEqual({ name: 'My Playlist', public: false });
     });
 });
+
+describe('POST /spotify/match (integration)', () => {
+    const spotifyTokens = require('../services/spotify/spotify.tokens');
+    const testUser = { id: 'user-1', email: 'jane@example.com', role: 'USER' };
+
+    const buildAccessToken = () => jwt.sign(
+        { email: testUser.email },
+        process.env.JWT_ACCESS_TOKEN_SECRET,
+        { expiresIn: '1h' }
+    );
+
+    const validTokens = {
+        accessToken: 'valid-access-token',
+        accessTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000)
+    };
+
+    const buildFetchResponse = ({ status, body = null }) => ({
+        status,
+        ok: status >= 200 && status < 300,
+        headers: { get: () => null },
+        text: async () => (body === null ? '' : JSON.stringify(body))
+    });
+
+    const track = (overrides = {}) => ({
+        uri: 'spotify:track:1BxfuPKGuaTgP7aM0Bbdwr',
+        id: '1BxfuPKGuaTgP7aM0Bbdwr',
+        name: 'Cruel Summer',
+        artists: [{ name: 'Taylor Swift' }],
+        album: { name: 'Lover', album_type: 'album', images: [] },
+        duration_ms: 178426,
+        explicit: false,
+        external_ids: { isrc: 'USUG11901473' },
+        ...overrides
+    });
+
+    const originalFetch = global.fetch;
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        prisma.user.findUnique.mockResolvedValue(testUser);
+        prisma.spotifyAccount.findUnique.mockResolvedValue({ country: 'US' });
+        spotifyTokens.getDecryptedTokens.mockResolvedValue(validTokens);
+    });
+
+    afterEach(() => {
+        global.fetch = originalFetch;
+    });
+
+    it('returns 401 without a JWT', async () => {
+        const response = await request(server).post('/spotify/match').send({ songs: [] });
+
+        expect(response.status).toBe(401);
+    });
+
+    it('returns 400 with 51 songs', async () => {
+        const songs = Array.from({ length: 51 }, (_, i) => ({ id: `d${i}`, title: 'Song', artist: 'Artist' }));
+
+        const response = await request(server)
+            .post('/spotify/match')
+            .set('Authorization', `Bearer ${buildAccessToken()}`)
+            .send({ songs });
+
+        expect(response.status).toBe(400);
+    });
+
+    it('returns 409 SPOTIFY_NOT_CONNECTED when there is no connected account', async () => {
+        prisma.spotifyAccount.findUnique.mockResolvedValue(null);
+        global.fetch = jest.fn();
+
+        const response = await request(server)
+            .post('/spotify/match')
+            .set('Authorization', `Bearer ${buildAccessToken()}`)
+            .send({ songs: [{ id: 'd1', title: 'Cruel Summer', artist: 'Taylor Swift' }] });
+
+        expect(response.status).toBe(409);
+        expect(response.body.errors.code).toBe('SPOTIFY_NOT_CONNECTED');
+        expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('returns a matched result with candidates for an exact title/artist/duration match', async () => {
+        global.fetch = jest.fn().mockResolvedValue(buildFetchResponse({
+            status: 200,
+            body: { tracks: { items: [track()] } }
+        }));
+
+        const response = await request(server)
+            .post('/spotify/match')
+            .set('Authorization', `Bearer ${buildAccessToken()}`)
+            .send({
+                songs: [{ id: 'd1', title: 'Cruel Summer', artist: 'Taylor Swift', duration: '2:58', confidence: 95 }]
+            });
+
+        expect(response.status).toBe(200);
+        expect(response.body.partial).toBe(false);
+        expect(response.body.results).toHaveLength(1);
+        expect(response.body.results[0].sourceId).toBe('d1');
+        expect(response.body.results[0].status).toBe('matched');
+        expect(response.body.results[0].candidates.length).toBeGreaterThan(0);
+    });
+});
+
+describe('GET /spotify/search (integration)', () => {
+    const spotifyTokens = require('../services/spotify/spotify.tokens');
+    const testUser = { id: 'user-1', email: 'jane@example.com', role: 'USER' };
+
+    const buildAccessToken = () => jwt.sign(
+        { email: testUser.email },
+        process.env.JWT_ACCESS_TOKEN_SECRET,
+        { expiresIn: '1h' }
+    );
+
+    const validTokens = {
+        accessToken: 'valid-access-token',
+        accessTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000)
+    };
+
+    const buildFetchResponse = ({ status, body = null }) => ({
+        status,
+        ok: status >= 200 && status < 300,
+        headers: { get: () => null },
+        text: async () => (body === null ? '' : JSON.stringify(body))
+    });
+
+    const originalFetch = global.fetch;
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        prisma.user.findUnique.mockResolvedValue(testUser);
+        spotifyTokens.getDecryptedTokens.mockResolvedValue(validTokens);
+    });
+
+    afterEach(() => {
+        global.fetch = originalFetch;
+    });
+
+    it('returns 401 without a JWT', async () => {
+        const response = await request(server).get('/spotify/search').query({ q: 'espresso' });
+
+        expect(response.status).toBe(401);
+    });
+
+    it('returns 400 when q is empty', async () => {
+        const response = await request(server)
+            .get('/spotify/search')
+            .set('Authorization', `Bearer ${buildAccessToken()}`)
+            .query({ q: '' });
+
+        expect(response.status).toBe(400);
+    });
+
+    it('returns items with confidence null', async () => {
+        global.fetch = jest.fn().mockResolvedValue(buildFetchResponse({
+            status: 200,
+            body: {
+                tracks: {
+                    items: [{
+                        uri: 'spotify:track:2HRqTpkrJO5ggZyyK6NPWz',
+                        id: '2HRqTpkrJO5ggZyyK6NPWz',
+                        name: 'Espresso',
+                        artists: [{ name: 'Sabrina Carpenter' }],
+                        album: { name: "Short n' Sweet", album_type: 'album', images: [] },
+                        duration_ms: 175459,
+                        explicit: true,
+                        external_ids: { isrc: 'USUM72403305' }
+                    }]
+                }
+            }
+        }));
+
+        const response = await request(server)
+            .get('/spotify/search')
+            .set('Authorization', `Bearer ${buildAccessToken()}`)
+            .query({ q: 'espresso' });
+
+        expect(response.status).toBe(200);
+        expect(response.body.items).toHaveLength(1);
+        expect(response.body.items[0].confidence).toBeNull();
+    });
+});
+
+describe('POST /spotify/playlists/:playlistId/items (integration)', () => {
+    const spotifyTokens = require('../services/spotify/spotify.tokens');
+    const testUser = { id: 'user-1', email: 'jane@example.com', role: 'USER' };
+
+    const buildAccessToken = () => jwt.sign(
+        { email: testUser.email },
+        process.env.JWT_ACCESS_TOKEN_SECRET,
+        { expiresIn: '1h' }
+    );
+
+    const validTokens = {
+        accessToken: 'valid-access-token',
+        accessTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000)
+    };
+
+    const buildFetchResponse = ({ status, body = null }) => ({
+        status,
+        ok: status >= 200 && status < 300,
+        headers: { get: () => null },
+        text: async () => (body === null ? '' : JSON.stringify(body))
+    });
+
+    const originalFetch = global.fetch;
+    const uri = 'spotify:track:1BxfuPKGuaTgP7aM0Bbdwr';
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+        prisma.user.findUnique.mockResolvedValue(testUser);
+        prisma.spotifyAccount.findUnique.mockResolvedValue({ userId: 'user-1', defaultPlaylistId: null });
+        spotifyTokens.getDecryptedTokens.mockResolvedValue(validTokens);
+    });
+
+    afterEach(() => {
+        global.fetch = originalFetch;
+    });
+
+    it('returns 401 without a JWT', async () => {
+        const response = await request(server).post('/spotify/playlists/p1/items').send({ uris: [uri] });
+
+        expect(response.status).toBe(401);
+    });
+
+    it('returns 400 for an album uri without calling Spotify', async () => {
+        global.fetch = jest.fn();
+
+        const response = await request(server)
+            .post('/spotify/playlists/p1/items')
+            .set('Authorization', `Bearer ${buildAccessToken()}`)
+            .send({ uris: ['spotify:album:1BxfuPKGuaTgP7aM0Bbdwr'] });
+
+        expect(response.status).toBe(400);
+        expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('writes the new uris and skips the ones already in the playlist', async () => {
+        global.fetch = jest.fn()
+            .mockResolvedValueOnce(buildFetchResponse({
+                status: 200,
+                body: { items: [{ item: { uri } }], next: null }
+            }))
+            .mockResolvedValueOnce(buildFetchResponse({
+                status: 200,
+                body: { snapshot_id: 'snap-1' }
+            }));
+
+        const response = await request(server)
+            .post('/spotify/playlists/p1/items')
+            .set('Authorization', `Bearer ${buildAccessToken()}`)
+            .send({ uris: [uri, 'spotify:track:0V3wPSX9ygBnCm8psDIegu'] });
+
+        expect(response.status).toBe(200);
+        expect(response.body.added).toEqual(['spotify:track:0V3wPSX9ygBnCm8psDIegu']);
+        expect(response.body.skippedDuplicates).toEqual([uri]);
+        expect(response.body.snapshotId).toBe('snap-1');
+    });
+
+    it('returns 404 SPOTIFY_PLAYLIST_NOT_FOUND when Spotify reports the playlist is gone', async () => {
+        global.fetch = jest.fn().mockResolvedValue(buildFetchResponse({ status: 404 }));
+
+        const response = await request(server)
+            .post('/spotify/playlists/deleted-playlist/items')
+            .set('Authorization', `Bearer ${buildAccessToken()}`)
+            .send({ uris: [uri] });
+
+        expect(response.status).toBe(404);
+        expect(response.body.errors.code).toBe('SPOTIFY_PLAYLIST_NOT_FOUND');
+    });
+});
