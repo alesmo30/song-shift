@@ -1,4 +1,20 @@
-const { normalizeTitle, normalizeArtist, splitFeaturedArtists, parseDurationToMs } = require('./matching');
+const { normalizeTitle, normalizeArtist, splitFeaturedArtists, parseDurationToMs, scoreCandidate, pickBest } = require('./matching');
+
+const candidate = (overrides = {}) => ({
+    uri: 'spotify:track:1BxfuPKGuaTgP7aM0Bbdwr',
+    id: '1BxfuPKGuaTgP7aM0Bbdwr',
+    title: 'Cruel Summer',
+    artists: ['Taylor Swift'],
+    album: 'Lover',
+    durationMs: 178426,
+    isrc: 'USUG11901473',
+    explicit: false,
+    popularity: 94,
+    imageUrl: 'https://example.com/cover.jpg',
+    previewUrl: null,
+    isCompilation: false,
+    ...overrides
+});
 
 describe('services/spotify/matching', () => {
     describe('normalizeTitle', () => {
@@ -123,6 +139,131 @@ describe('services/spotify/matching', () => {
 
         it('returns null for a malformed string', () => {
             expect(parseDurationToMs('not-a-duration')).toBeNull();
+        });
+    });
+
+    describe('splitFeaturedArtists — feat/ft/with separators', () => {
+        it('splits on "feat."', () => {
+            expect(splitFeaturedArtists('Taylor Swift feat. Post Malone')).toEqual(['taylor swift', 'post malone']);
+        });
+
+        it('splits on "with" without breaking a name that contains it as a substring', () => {
+            expect(splitFeaturedArtists('Bill Withers')).toEqual(['bill withers']);
+        });
+
+        it('splits on "ft"', () => {
+            expect(splitFeaturedArtists('Taylor Swift ft Post Malone')).toEqual(['taylor swift', 'post malone']);
+        });
+    });
+
+    describe('scoreCandidate', () => {
+        const source = { id: 'd1', title: 'Cruel Summer', artist: 'Taylor Swift', duration: '2:58', confidence: 95 };
+
+        it('scores an exact title and artist match near 1', () => {
+            const { score, reasons } = scoreCandidate(source, candidate());
+            expect(score).toBeGreaterThanOrEqual(0.85);
+            expect(reasons).toEqual(expect.arrayContaining(['exact-title', 'exact-artist', 'duration-2s']));
+        });
+
+        it('penalizes a candidate whose title has a live/karaoke/etc. keyword the source does not have', () => {
+            const withKeyword = scoreCandidate(source, candidate({ title: 'Cruel Summer - Live' }));
+            const withoutKeyword = scoreCandidate(source, candidate());
+            expect(withKeyword.score).toBeLessThan(withoutKeyword.score);
+            expect(withKeyword.reasons).toContain('keyword-penalty');
+        });
+
+        it('does not penalize the keyword when the source title also has it', () => {
+            const liveSource = { ...source, title: 'Cruel Summer - Live' };
+            const { reasons } = scoreCandidate(liveSource, candidate({ title: 'Cruel Summer - Live' }));
+            expect(reasons).not.toContain('keyword-penalty');
+        });
+
+        it('renormalizes weights and adds no-source-duration when source has no duration', () => {
+            const noDurationSource = { ...source, duration: null };
+            const { score, reasons } = scoreCandidate(noDurationSource, candidate());
+            expect(reasons).toContain('no-source-duration');
+            expect(reasons).not.toContain('duration-2s');
+            expect(score).toBeGreaterThan(0.8);
+        });
+
+        it('scores low for a title/artist mismatch', () => {
+            const { score } = scoreCandidate(source, candidate({ title: 'Anti-Hero', artists: ['Taylor Swift'] }));
+            expect(score).toBeLessThan(0.6);
+        });
+    });
+
+    describe('pickBest', () => {
+        const source = { id: 'd1', title: 'Cruel Summer', artist: 'Taylor Swift', duration: '2:58', confidence: 95 };
+
+        it('returns matched with confidence >= 85 for an exact match', () => {
+            const result = pickBest(source, [candidate()]);
+            expect(result.status).toBe('matched');
+            expect(result.best.confidence).toBeGreaterThanOrEqual(85);
+        });
+
+        it('returns not_found with best null when nothing scores 60+', () => {
+            const result = pickBest(source, [candidate({ title: 'Completely Different Song', artists: ['Nobody'] })]);
+            expect(result.status).toBe('not_found');
+            expect(result.best).toBeNull();
+            expect(result.candidates).toHaveLength(1);
+        });
+
+        it('does not return matched for a karaoke-only result', () => {
+            const result = pickBest(source, [candidate({ title: 'Cruel Summer - Karaoke Version' })]);
+            expect(result.status).not.toBe('matched');
+        });
+
+        it('forces ambiguous when the top two candidates are within 0.04 of each other', () => {
+            const result = pickBest(source, [
+                candidate({ id: 'a', title: 'Cruel Summer', popularity: 94 }),
+                candidate({ id: 'b', title: 'Cruel Summer', popularity: 93 })
+            ]);
+            expect(result.status).toBe('ambiguous');
+            expect(result.best.reasons).toContain('near-tie');
+        });
+
+        it('forces ambiguous when the source confidence is below 70, even with a high score', () => {
+            const lowConfidenceSource = { ...source, confidence: 60 };
+            const result = pickBest(lowConfidenceSource, [candidate()]);
+            expect(result.status).toBe('ambiguous');
+            expect(result.best.reasons).toContain('low-source-confidence');
+        });
+
+        it('does not penalize when there is no source duration', () => {
+            const noDurationSource = { ...source, duration: null };
+            const result = pickBest(noDurationSource, [candidate()]);
+            expect(result.status).toBe('matched');
+        });
+
+        it('always returns candidates, even when status is matched', () => {
+            const result = pickBest(source, [candidate()]);
+            expect(result.candidates.length).toBeGreaterThan(0);
+        });
+
+        it('caps candidates at 5, sorted by confidence desc', () => {
+            const many = Array.from({ length: 8 }, (_, i) => candidate({ id: `c${i}`, popularity: i * 10 }));
+            const result = pickBest(source, many);
+            expect(result.candidates).toHaveLength(5);
+            const confidences = result.candidates.map((c) => c.confidence);
+            expect(confidences).toEqual([...confidences].sort((a, b) => b - a));
+        });
+
+        it('returns not_found with an empty candidates array for no candidates', () => {
+            const result = pickBest(source, []);
+            expect(result).toEqual({ status: 'not_found', best: null, candidates: [] });
+        });
+
+        it('applies a compilation penalty when a close non-compilation candidate exists', () => {
+            const compilationHeavy = pickBest(source, [
+                candidate({ id: 'comp', isCompilation: true, popularity: 50 }),
+                candidate({ id: 'noncomp', isCompilation: false, popularity: 50 })
+            ]);
+            const noPenalty = pickBest(source, [
+                candidate({ id: 'comp-alone', isCompilation: true, popularity: 50 })
+            ]);
+            const compEntry = compilationHeavy.candidates.find((c) => c.id === 'comp');
+            expect(compEntry.reasons).toContain('compilation-penalty');
+            expect(compEntry.confidence).toBeLessThan(noPenalty.candidates[0].confidence);
         });
     });
 });
