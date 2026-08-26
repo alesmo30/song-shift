@@ -244,11 +244,14 @@ const pickBest = (source, candidates) => {
     if (isLowSourceConfidence) first.reasons = [...first.reasons, 'low-source-confidence'];
     if (isNearTie || isLowSourceConfidence) status = 'ambiguous';
 
-    const candidatesOut = scored.slice(0, 5).map((entry) => ({
-        ...entry.candidate,
-        confidence: Math.round(entry.score * 100),
-        reasons: entry.reasons
-    }));
+    const candidatesOut = scored.slice(0, 5).map((entry) => {
+        const { isCompilation, ...trackMatch } = entry.candidate;
+        return {
+            ...trackMatch,
+            confidence: Math.round(entry.score * 100),
+            reasons: entry.reasons
+        };
+    });
 
     const best = status === 'not_found' ? null : candidatesOut[0];
 
