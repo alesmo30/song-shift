@@ -52,8 +52,56 @@ const defaultPlaylistSchemaValidation = (req, res, next) => {
     next();
 };
 
+const matchSongsSchema = Joi.object({
+    songs: Joi.array()
+        .items(
+            Joi.object({
+                id: Joi.string().required(),
+                title: Joi.string().required(),
+                artist: Joi.string().required(),
+                duration: Joi.string().allow(null),
+                confidence: Joi.number().min(0).max(100)
+            })
+        )
+        .min(1)
+        .max(50)
+        .required()
+});
+
+const matchSongsSchemaValidation = (req, res, next) => {
+    const { error, value } = matchSongsSchema.validate(req.body, { abortEarly: false });
+
+    if (error) {
+        throw new ValidationError(formatJoiErrors(error));
+    }
+
+    req.body = value;
+    next();
+};
+
+const addTracksSchema = Joi.object({
+    uris: Joi.array()
+        .items(Joi.string().pattern(/^spotify:track:[A-Za-z0-9]{22}$/))
+        .min(1)
+        .max(100)
+        .required()
+});
+
+const addTracksSchemaValidation = (req, res, next) => {
+    const { error, value } = addTracksSchema.validate(req.body, { abortEarly: false });
+
+    if (error) {
+        throw new ValidationError(formatJoiErrors(error));
+    }
+
+    req.body = value;
+    next();
+};
+
 module.exports = {
     authUrlSchemaValidation,
     createPlaylistSchemaValidation,
-    defaultPlaylistSchemaValidation
+    defaultPlaylistSchemaValidation,
+    matchSongsSchemaValidation,
+    addTracksSchemaValidation
 };

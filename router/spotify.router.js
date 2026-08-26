@@ -3,7 +3,8 @@ const auth = require('../middlewares/auth');
 const {
     authUrlSchemaValidation,
     createPlaylistSchemaValidation,
-    defaultPlaylistSchemaValidation
+    defaultPlaylistSchemaValidation,
+    matchSongsSchemaValidation
 } = require('../middlewares/spotify-schema.validation');
 const { startOAuth, oauthCallback, getStatus, disconnect } = require('../services/spotify/spotify.auth');
 const { listPlaylists, createPlaylist, setDefaultPlaylist } = require('../services/spotify/spotify.playlists');
@@ -17,7 +18,7 @@ router.delete('/spotify/connection', auth, disconnect);
 router.get('/spotify/playlists', auth, listPlaylists);
 router.post('/spotify/playlists', auth, createPlaylistSchemaValidation, createPlaylist);
 router.put('/spotify/default-playlist', auth, defaultPlaylistSchemaValidation, setDefaultPlaylist);
-router.post('/spotify/match', auth, matchTracks);
+router.post('/spotify/match', auth, matchSongsSchemaValidation, matchTracks);
 router.get('/spotify/search', auth, searchTracks);
 
 module.exports = { spotifyRouter: router };
